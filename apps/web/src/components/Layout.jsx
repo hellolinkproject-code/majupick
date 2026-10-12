@@ -1,6 +1,66 @@
-import { Link, Outlet } from 'react-router';
+import { useEffect, useState } from 'react';
+import { Link, Outlet, useNavigate } from 'react-router';
+import { useQueryClient } from '@tanstack/react-query';
+import { logout, restoreSession } from '../lib/authApi.js';
+import { useSessionStore } from '../stores/useSessionStore.js';
+
+// 역할별 메뉴(프로젝트 등록, 내 지원 현황 등)는 해당 화면을 만드는 단계에서 추가한다.
+function AuthNav() {
+  const status = useSessionStore((state) => state.status);
+  const user = useSessionStore((state) => state.user);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  if (status === 'idle' || status === 'restoring') {
+    return <nav className="layout__nav" aria-label="계정" aria-busy="true" />;
+  }
+
+  if (status !== 'authenticated' || !user) {
+    return (
+      <nav className="layout__nav" aria-label="계정">
+        <Link to="/login">로그인</Link>
+        <Link to="/signup" className="button button--small">
+          회원가입
+        </Link>
+      </nav>
+    );
+  }
+
+  async function handleLogout() {
+    setIsLoggingOut(true);
+    try {
+      await logout();
+    } catch {
+      // 서버 무효화에 실패해도 이 브라우저의 로그인 상태는 이미 해제되었다.
+    } finally {
+      setIsLoggingOut(false);
+      queryClient.removeQueries({ queryKey: ['me'] });
+      navigate('/', { replace: true });
+    }
+  }
+
+  return (
+    <nav className="layout__nav" aria-label="계정">
+      <span className="layout__user">{user.name}님</span>
+      <Link to="/me">내 프로필</Link>
+      <button
+        type="button"
+        className="button button--small button--ghost"
+        onClick={handleLogout}
+        disabled={isLoggingOut}
+      >
+        로그아웃
+      </button>
+    </nav>
+  );
+}
 
 export function Layout() {
+  useEffect(() => {
+    restoreSession();
+  }, []);
+
   return (
     <div className="layout">
       <header className="layout__header">
@@ -8,6 +68,7 @@ export function Layout() {
           WorkBridge
         </Link>
         <span className="layout__badge">개발 환경</span>
+        <AuthNav />
       </header>
       <main className="layout__main">
         <Outlet />

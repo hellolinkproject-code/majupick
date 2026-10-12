@@ -1,6 +1,6 @@
 # WorkBridge REST API 명세 v1
 
-> 상태: **모든 엔드포인트가 `설계` 상태(구현 코드 없음)**. 구현하면 해당 행의 상태를 `구현`, 테스트까지 통과하면 `검증`으로 바꾼다.
+> 상태: STEP 04-A에서 **AUTH-01~05 검증**(실제 PostgreSQL 테스트 통과). 나머지 행은 표에 적힌 상태 그대로다. 구현하면 해당 행의 상태를 `구현`, 테스트까지 통과하면 `검증`으로 바꾼다.
 > 근거: [REQUIREMENTS.md](./REQUIREMENTS.md), [ERD_v1.md](./ERD_v1.md), [DECISIONS.md](./DECISIONS.md)
 > 제출용 API 명세(O-05)는 구현 단계에서 이 문서를 Swagger(OpenAPI) 또는 Postman으로 옮겨 만든다.
 
@@ -26,7 +26,7 @@
 | Base URL | `/api` (배포 시 FE 도메인의 `/api/*`를 BE로 rewrite해 같은 출처로 호출, D-43) |
 | 형식 | JSON (`Content-Type: application/json`), 파일 업로드만 `multipart/form-data` |
 | 인증 | `Authorization: Bearer <accessToken>`. Access Token 유효 15분 |
-| Refresh Token | httpOnly 쿠키 `wb_rt` (`Secure`, `SameSite=Lax`, `Path=/api/auth`). 응답 본문에 넣지 않는다(D-25) |
+| Refresh Token | httpOnly 쿠키 `wb_rt` (`Secure`, `SameSite=Lax`, `Path=/api/auth`). 응답 본문에 넣지 않는다(D-25). `Secure`는 운영에서만 붙인다(로컬 `http://localhost` 개발, D-66) |
 | 날짜 | 모집 시작·마감일은 `YYYY-MM-DD`(KST 날짜). 그 외 시각은 ISO 8601 UTC(`2026-10-12T05:00:00.000Z`) |
 | 금액 | 원 단위 정수. 0 이하 거부, 정책 상한 없음(D-42). **응답에서는 10진수 문자열**(예: `"3000000"`)로 보낸다. DB가 `bigint`이므로 JS `number`로 바꾸면 큰 값에서 정밀도가 손실될 수 있다(D-51). 요청에서는 숫자만으로 된 문자열을 권장하고, 안전 정수 범위(`Number.isSafeInteger`)의 JSON 숫자도 받는다. FE는 표시할 때 `BigInt(value).toLocaleString('ko-KR')`로 포맷한다 |
 | ID | 정수 |
@@ -134,11 +134,11 @@
 
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
-| AUTH-01 | POST | `/auth/signup` | 공개 | A-01, A-02, N-01 | 설계 |
-| AUTH-02 | POST | `/auth/login` | 공개 | A-02 | 설계 |
-| AUTH-03 | POST | `/auth/refresh` | 쿠키 `wb_rt` | A-03 | 설계 |
-| AUTH-04 | POST | `/auth/logout` | 쿠키 `wb_rt` | A-04, D-26 | 설계 |
-| AUTH-05 | GET | `/auth/me` | 로그인 | A-08, A-13 | 설계 |
+| AUTH-01 | POST | `/auth/signup` | 공개 | A-01, A-02, N-01 | 검증 |
+| AUTH-02 | POST | `/auth/login` | 공개 | A-02 | 검증 |
+| AUTH-03 | POST | `/auth/refresh` | 쿠키 `wb_rt` | A-03 | 검증 |
+| AUTH-04 | POST | `/auth/logout` | 쿠키 `wb_rt` | A-04, D-26 | 검증 |
+| AUTH-05 | GET | `/auth/me` | 로그인 | A-08, A-13 | 검증 |
 | AUTH-06 | GET | `/auth/oauth/google` | 공개 | A-05 | 설계 |
 | AUTH-07 | GET | `/auth/oauth/google/callback` | 공개(Google 리다이렉트) | A-05, A-06, A-07 | 설계 |
 | AUTH-08 | POST | `/auth/oauth/link` | 연동 확인 쿠키 `wb_link` | A-06, D-24 | 설계 |
@@ -188,6 +188,27 @@
 **AUTH-09 역할 선택** (소셜 최초 가입)
 - 요청: `{ "role": "FREELANCER" }` → 응답 200: `{ data: UserMe }`
 - 오류: 400, 409 `ROLE_ALREADY_SET`
+
+### 3.1 STEP 04-A 구현 내용과 명세 대비 차이 (AUTH-01~05)
+
+구현: `apps/api/src/modules/auth/`, `apps/api/src/middlewares/authenticate.js`, `trustedOrigin.js`. 테스트: `apps/api/test/auth.unit.test.js`(단위), `apps/api/test/db/auth.integration.test.js`(실제 테스트 DB).
+
+| # | 항목 | 명세 | 구현 | 근거 |
+|---|---|---|---|---|
+| 1 | Refresh Token 형식 | 정하지 않음 | 무작위 32바이트(base64url), DB에는 SHA-256 해시만 저장. 유효 14일 | D-64 |
+| 2 | 쿠키 `Secure` | 항상 | 운영 또는 `COOKIE_SECURE=true`일 때만 | 로컬 HTTP 개발(D-66) |
+| 3 | 출처 검사 | 없음 | `/api/auth`의 POST에 `Origin` 헤더가 있고 `CORS_ORIGIN`에 없으면 403 `FORBIDDEN` | CSRF 보완(D-66) |
+| 4 | 캐시 | 없음 | `/api/auth` 응답에 `Cache-Control: no-store` | 토큰·개인정보가 캐시에 남지 않게 함 |
+| 5 | 비밀번호 상한 | 없음 | 72바이트 초과는 400(회원가입). 로그인에서는 `INVALID_CREDENTIALS` | bcrypt가 72바이트 뒤를 무시함(D-67) |
+| 6 | 재발급 실패 | 401 | 401 `INVALID_REFRESH_TOKEN` + 쿠키 삭제 | 브라우저에 쓸모없는 쿠키를 남기지 않음 |
+| 7 | 호출 제한 | 로그인 429 | 로그인 실패 10회/15분/IP 초과 시 429 `RATE_LIMITED`(성공은 세지 않음) | D-68 |
+| 8 | 회원가입 응답 | 201 + 토큰 | 같음. 가입하면 바로 로그인된다 | 프로필 입력을 강제하지 않음(D-56) |
+| 9 | 이름 | 형식 미정 | 앞뒤 공백 제거 후 1~50자 | ERD `users.name varchar(50)` |
+| 10 | 이메일 | 소문자 정규화 | 앞뒤 공백 제거 + 소문자, 255자 이하. 같은 이메일 동시 가입은 DB UNIQUE로 1건만 성공하고 나머지는 409 | ERD `users.email` UNIQUE |
+
+- 오류 응답 예: 400 `{ "error": { "code": "VALIDATION_ERROR", "message": "입력값을 확인해 주세요.", "details": { "fields": { "email": "올바른 이메일 형식이 아닙니다." } } } }`
+- `TOKEN_EXPIRED`(만료)와 `UNAUTHENTICATED`(없음·위조·형식 오류)를 구분한다. FE는 두 경우 모두 `AUTH-03`을 한 번 시도한다(D-69).
+- `user`(`UserMe`)에는 비밀번호 해시가 들어가지 않고, 비밀번호 유무만 `hasPassword`로 준다. `hourlyRate`는 문자열(D-51).
 
 ---
 

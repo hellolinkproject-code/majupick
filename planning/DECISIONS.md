@@ -59,8 +59,8 @@
 | D-05 | 역할별 필수 프로필 항목 | "필수 프로필"이라고만 씀(3.1.3) | 의뢰인: 회사명, 사업 분야('기타'면 자유 입력 필수). 프리랜서: 카테고리, 기술 스택 1개 이상, 경력, 시간당 단가 | 이름만 필수 | 준비 | 제안 |
 | D-23 | 소셜 로그인 제공자 | 1종 이상, 팀 자율(3.1.2) | **Google OAuth 우선.** 이메일 인증 여부(`email_verified`)를 주므로 같은 이메일 연동을 안전하게 할 수 있다. 두 번째 제공자는 필수 기능 완료 후 검토 | Kakao(이메일 제공에 비즈니스 인증 필요할 수 있음) | 준비 | **확정** |
 | D-24 | 같은 이메일 연동 조건 | 같은 이메일이면 기존 계정 연동(3.1.2) | **이메일 검증 + 계정 소유 확인 필수.** ① 제공자가 `email_verified = true`를 준 경우만 진행 ② 기존 계정 비밀번호를 입력해 소유를 확인한 뒤 연동(연동 확인 토큰 10분). 연동 후에는 Google로 바로 로그인 | 이메일 검증만으로 자동 연동 | 준비 | **확정** |
-| D-25 | 토큰 보관 방식 | 이중 토큰 구조만 명시(3.1.1) | Access Token은 메모리(15분), Refresh Token은 httpOnly 쿠키 + 재발급 시 교체 | 둘 다 localStorage(XSS 위험) | 페이즈 1 | 제안 |
-| D-26 | 서버 측 Refresh Token 무효화 | 선택(3.1.1) | 구현한다. DB에 저장하고 로그아웃 시 삭제 | 클라이언트 삭제만 | 페이즈 1 | 제안 |
+| D-25 | 토큰 보관 방식 | 이중 토큰 구조만 명시(3.1.1) | Access Token은 메모리(15분), Refresh Token은 httpOnly 쿠키 + 재발급 시 교체 | 둘 다 localStorage(XSS 위험) | 페이즈 1 | 제안 (STEP 04-A 추천안대로 구현, D-64·D-69) |
+| D-26 | 서버 측 Refresh Token 무효화 | 선택(3.1.1) | 구현한다. DB에 저장하고 로그아웃 시 삭제 | 클라이언트 삭제만 | 페이즈 1 | 제안 (STEP 04-A 구현. 삭제 대신 `revoked_at` 기록, D-65) |
 | D-29 | 이미지 저장소 | 클라우드 스토리지 1종(§5) | Supabase Storage, 5MB 이하, jpg/png/webp | Cloudinary, S3 | 페이즈 1 | 제안 |
 | D-38 | 회원 탈퇴 | 미정 | MVP에서 제외 | 소프트 탈퇴 | 페이즈 1 | 제안 |
 | D-39 | 관리자 기능 | 도전 과제(관리자 정산 관리) | MVP에서 제외 | - | 페이즈 1 | 제안 |
@@ -131,7 +131,7 @@
 | D-57 | 소셜 계정 저장 구조 | 미정 | `social_accounts` 테이블 분리(제공자 + 제공자 사용자 ID UNIQUE). D-48의 "User 컬럼 방식"을 대체 | User에 `oauth_provider`, `oauth_id` 컬럼 | 준비 | 제안 |
 | D-58 | 모집 시작·마감일 저장 타입 | 미정 | `date` 타입(KST 날짜)으로 저장하고, 오늘 날짜는 `Asia/Seoul` 기준으로 계산 | `timestamptz`(00:00 / 23:59:59 KST) | 준비 | 제안 |
 | D-59 | 카테고리·사업 분야 값 목록 | 선택형이라고만 씀(3.1.3, 3.2.1) | 카테고리: 웹, 모바일, 디자인, 마케팅, 데이터·AI, 기획, 기타. 사업 분야: IT, 커머스, 교육, 금융, 헬스케어, 미디어, 제조, 기타 | 팀 조사 후 조정 | 준비 | 제안 |
-| D-60 | 비밀번호 규칙 | 미정 | 8자 이상(영문·숫자 포함 여부는 팀 결정) | 길이만 검사 | 페이즈 1 | 제안 |
+| D-60 | 비밀번호 규칙 | 미정 | 8자 이상(영문·숫자 포함 여부는 팀 결정) | 길이만 검사 | 페이즈 1 | 제안 (STEP 04-A는 8자 이상만 검사, D-67) |
 
 ### 2.8 STEP 03-B에서 추가된 항목
 
@@ -140,6 +140,19 @@
 | D-61 | 로컬 DB 구성 | 미정 | **로컬 PostgreSQL 18에 DB 3개 분리**(`workbridge_dev`·`workbridge_test`·`workbridge_shadow`). 앱 전용 계정 `workbridge_app`(관리자 권한 없음)이 소유. 원격 DB는 `ALLOW_REMOTE_DATABASE=true`일 때만 연결 | Docker, Supabase(추가 설치·계정 필요) | STEP 03-B | **확정** (STEP 03-B 지시) |
 | D-62 | 마이그레이션 적용 방식 | 미정 | 생성은 `prisma migrate dev --create-only`(shadow DB 사용) → SQL 검토 → 적용은 개발·테스트 DB 모두 `prisma migrate deploy`. `migrate reset`·`db push`는 쓰지 않는다. 테스트 DB 대상에서는 `dev`·`reset`·`push` 명령을 설정 파일이 거부한다 | `prisma migrate dev`로 바로 적용(드리프트 시 DB 초기화를 제안함) | STEP 03-B | **확정** |
 | D-63 | 테스트 DB 격리 | 미정 | 실제 DB 테스트는 `TEST_DATABASE_URL`(이름이 `_test`로 끝나야 함)만 사용. 테스트 실행 중(`NODE_ENV=test` 또는 `VITEST`) 개발 DB 연결은 코드에서 거부. 테스트는 실행마다 표시(runId)를 붙인 행만 만들고 끝나면 그 행만 지운다 | 매 테스트 전 전체 TRUNCATE(다른 데이터까지 지움) | STEP 03-B | **확정** |
+
+### 2.9 STEP 04-A에서 추가된 항목
+
+RFP는 이중 토큰 구조와 서버 측 무효화(선택)만 정한다(3.1.1). 아래는 STEP 04-A 구현에 쓴 기본값이며, 팀 확인 전이므로 `제안`이다. 값은 환경 변수로 바꿀 수 있다(README '인증').
+
+| ID | 주제 | RFP | 추천안 / 결정 | 대안 | 확정 시점 | 상태 |
+|---|---|---|---|---|---|---|
+| D-64 | 토큰 형식과 유효 기간 | 이중 토큰(3.1.1) | **Access Token:** JWT HS256, 15분(`ACCESS_TOKEN_TTL_SECONDS`), 내용은 `sub`(사용자 ID)·`iss`·`aud`·`exp`만(역할·이메일을 넣지 않아 변경이 바로 반영됨). **Refresh Token:** JWT가 아닌 무작위 32바이트 문자열, 14일(`REFRESH_TOKEN_TTL_DAYS`). DB `refresh_tokens.token_hash`에는 SHA-256 해시만 저장 | Refresh Token도 JWT(서버 저장을 하면 서명이 주는 이점이 없고 비밀키가 하나 더 필요), Access 1시간(탈취 시 노출 시간 증가) | STEP 04-A | 제안 (구현) |
+| D-65 | Refresh Token 교체와 재사용 감지 | 서버 측 무효화 선택(3.1.1) | 재발급할 때마다 새 토큰을 주고 이전 토큰에 `revoked_at` 기록(교체). 교체는 트랜잭션 안의 조건부 갱신이라 동시에 같은 토큰으로 재발급해도 1건만 성공. **이미 무효화된 토큰이 다시 오면 탈취로 보고 그 사용자 토큰 전체를 무효화.** 로그아웃은 현재 기기의 토큰만 무효화. 행을 지우지 않고 `revoked_at`을 남겨 재사용을 감지한다 | 로그아웃 시 행 삭제(D-26 원안, 재사용 감지 불가), 교체 없음 | STEP 04-A | 제안 (구현) |
+| D-66 | 쿠키와 CSRF 대응 | 미정 | 쿠키 `wb_rt`: `HttpOnly`, `SameSite=Lax`, `Path=/api/auth`, 운영(`NODE_ENV=production`)에서는 항상 `Secure`(로컬 HTTPS 테스트는 `COOKIE_SECURE=true`). 쿠키가 실리는 곳은 `/api/auth`뿐이고, 그 밖의 API는 쿠키가 아닌 `Authorization` 헤더로 인증하므로 CSRF 대상이 아니다. 추가로 `/api/auth`의 POST는 `Origin` 헤더가 `CORS_ORIGIN` 목록에 없으면 403(헤더가 없는 서버 간 호출은 허용). 인증 응답은 `Cache-Control: no-store` | CSRF 토큰(같은 출처 rewrite(D-43)와 SameSite=Lax로 충분해 복잡도만 늘어남), `SameSite=Strict`(외부 링크로 들어오면 세션 복원이 안 됨) | STEP 04-A | 제안 (구현) |
+| D-67 | 비밀번호 저장과 로그인 오류 | D-60 미정 | bcrypt(`bcryptjs`, 기본 12라운드, 운영 최소 10, `BCRYPT_ROUNDS`). 규칙은 D-60 추천안대로 **8자 이상만** 검사. 상한 72바이트는 정책이 아니라 bcrypt가 72바이트 뒤를 무시하는 기술적 한계라서 거부한다. 로그인 실패는 계정 유무와 관계없이 같은 401 `INVALID_CREDENTIALS`, 없는 계정·소셜 전용 계정도 더미 해시와 비교해 응답 시간 차이를 줄임 | 영문·숫자·특수문자 조합 강제(RFP에 없음, 팀 결정 사항으로 남김), argon2(네이티브 빌드 필요) | STEP 04-A | 제안 (구현) |
+| D-68 | 로그인 호출 제한과 비밀키 관리 | 429 `RATE_LIMITED` 설계만 있음 | 로그인 **실패** 10회/15분/IP(`LOGIN_RATE_LIMIT_MAX`, 성공은 세지 않음), 메모리 저장소(서버 1대 기준. 여러 대로 늘리면 공유 저장소 필요). `JWT_ACCESS_SECRET`은 운영에서 필수(32자 이상, 없으면 서버가 시작하지 않음). 개발에서 비어 있으면 실행마다 임시 비밀키를 만들고 경고를 남긴다(재시작하면 Access Token만 무효, Refresh Token으로 자동 재발급) | 개발에도 필수(처음 실행이 어려워짐), 코드에 기본 비밀키(유출 위험) | STEP 04-A | 제안 (구현) |
+| D-69 | 프론트엔드 세션 처리 | 미정 | Access Token은 Zustand 메모리에만 둔다(D-25). 새로고침하면 `AUTH-03`으로 복원. 401(`TOKEN_EXPIRED`·`UNAUTHENTICATED`)을 받으면 **재발급은 한 번만**(동시에 실패한 요청은 같은 재발급 결과를 기다림), 성공하면 원래 요청을 1회 재시도, 실패하면 로그인 상태를 지운다. 여러 탭이 같은 쿠키로 동시에 재발급하면 D-65 재사용 감지에 걸리므로 Web Locks API로 탭 간 재발급을 순서대로 실행. 로그인 후 복귀 경로 `returnTo`는 `/`로 시작하는 내부 경로만 허용 | localStorage 보관(XSS 노출), 탭 간 처리 없음(여러 탭 사용 시 로그아웃될 수 있음) | STEP 04-A | 제안 (구현) |
 
 ---
 
@@ -191,3 +204,13 @@
 | 2 | ERD_v1 §3 `id` | `GENERATED ALWAYS AS IDENTITY` | `SERIAL` | Prisma `autoincrement()`의 PostgreSQL 매핑. 동작 동일, drift 방지(ERD_v1 §7.2 #1) |
 | 3 | TECH_STACK §5 | `DATABASE_URL` 1개 | DB URL 3개 + `ALLOW_REMOTE_DATABASE` | D-61, D-63 |
 | 4 | D-02 | 확인 필요 | **변동 없음.** DB는 로컬 PostgreSQL 18 + Prisma 7.10.0으로 구축(TECH_STACK §7) | 고정 기술 스택 목록 여전히 미공지 |
+
+### 4.4 STEP 04-A (2026-10-12)
+
+| # | 대상 | 이전 | 변경 | 근거 |
+|---|---|---|---|---|
+| 1 | API_SPEC_v1 AUTH-01~05 | 설계 | 구현·검증. 명세와 다른 점은 API_SPEC_v1 §3.1 | STEP 04-A 범위: 이메일 회원가입·로그인·JWT. Google OAuth(AUTH-06~09)는 STEP 04-B |
+| 2 | D-26 | 로그아웃 시 Refresh Token 삭제 | 삭제하지 않고 `revoked_at` 기록(API_SPEC_v1 AUTH-04와 같음) | 재사용 감지(D-65)에 무효화된 행이 필요 |
+| 3 | API_SPEC_v1 §1.1 | 쿠키 항상 `Secure` | 운영에서만 `Secure`(로컬 HTTPS는 `COOKIE_SECURE=true`) | 로컬 개발 서버는 `http://localhost`라 `Secure` 쿠키를 쓸 수 없다(D-66) |
+| 4 | 환경 변수 | `JWT_REFRESH_SECRET` 주석 예시 | 제거. `JWT_ACCESS_SECRET`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_DAYS`, `BCRYPT_ROUNDS`, `COOKIE_SECURE`, `LOGIN_RATE_LIMIT_MAX` 추가 | Refresh Token은 서명하지 않는 무작위 값(D-64) |
+| 5 | D-02 | 확인 필요 | **변동 없음.** 인증 라이브러리 `jsonwebtoken`, `bcryptjs`, `cookie-parser`, `express-rate-limit` 추가 | 고정 기술 스택 목록 여전히 미공지 |

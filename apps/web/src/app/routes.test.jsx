@@ -7,6 +7,10 @@ import { routes } from './routes.js';
 vi.mock('../lib/apiClient.js', () => ({
   fetchHealth: vi.fn(async () => ({ status: 'ok' })),
 }));
+vi.mock('../lib/authApi.js', () => ({
+  restoreSession: vi.fn(async () => {}),
+  logout: vi.fn(async () => {}),
+}));
 
 function renderAt(path) {
   const router = createMemoryRouter(routes, { initialEntries: [path] });

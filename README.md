@@ -2,7 +2,7 @@
 
 의뢰인과 프리랜서를 연결하는 프로젝트 중개 플랫폼 (코드잇 풀스택 JavaScript 과제).
 
-> 현재 단계: **데이터베이스 기반 구축(STEP 03-B)**. 화면은 홈·404, API는 `GET /api/health`만 있다. 로컬 PostgreSQL에 사용자·프로필·기술 스택·프로젝트 테이블 9개를 만들었다.
+> 현재 단계: **이메일 회원가입·로그인(STEP 04-A)**. 화면은 홈·로그인·회원가입·내 프로필(로그인 필요)·404, API는 `GET /api/health`와 인증 5개(`/api/auth/*`)가 있다. 로컬 PostgreSQL에 사용자·프로필·기술 스택·프로젝트 테이블 9개가 있다.
 > 기획·설계 문서는 [`planning/`](./planning)에 있다.
 
 ## 기술 스택
@@ -110,11 +110,26 @@ npm run db:migrate:status -w apps/api   # 개발 DB 적용 상태 확인
 
 ### 3. 테스트
 
-| 명령                               | 무엇을 검사하나                                                                 | DB 필요 |
-| ---------------------------------- | ------------------------------------------------------------------------------- | ------- |
-| `npm run test`                     | API·화면 단위 테스트                                                            | 아니요  |
-| `npm run test:db`                  | 실제 PostgreSQL에서 테이블·제약·관계·금액(bigint)·날짜 처리 (`workbridge_test`) | 예      |
-| `npm run test:scripts -w apps/api` | DB 준비 PowerShell 스크립트 정적 검사                                           | 아니요  |
+| 명령                               | 무엇을 검사하나                                                                           | DB 필요 |
+| ---------------------------------- | ----------------------------------------------------------------------------------------- | ------- |
+| `npm run test`                     | API·화면 단위 테스트                                                                      | 아니요  |
+| `npm run test:db`                  | 실제 PostgreSQL에서 테이블·제약·관계·금액(bigint)·날짜 처리, 인증 API (`workbridge_test`) | 예      |
+| `npm run test:scripts -w apps/api` | DB 준비 PowerShell 스크립트 정적 검사                                                     | 아니요  |
 
 - DB 테스트는 `workbridge_test`에만 연결한다. 테스트 실행 중에는 개발 DB 연결을 코드가 거부한다.
 - DB 테스트는 실행할 때마다 표시를 붙인 테스트용 행만 만들고, 끝나면 그 행만 지운다.
+
+## 인증 (이메일 회원가입·로그인)
+
+| API                      | 설명                                                                     |
+| ------------------------ | ------------------------------------------------------------------------ |
+| `POST /api/auth/signup`  | 회원가입(이름·이메일·비밀번호·역할 `CLIENT`/`FREELANCER`) 후 바로 로그인 |
+| `POST /api/auth/login`   | 로그인                                                                   |
+| `POST /api/auth/refresh` | Refresh Token 쿠키로 Access Token 재발급(새로고침 시 세션 복원)          |
+| `POST /api/auth/logout`  | 현재 기기의 Refresh Token 무효화                                         |
+| `GET /api/auth/me`       | 내 정보(`Authorization: Bearer <accessToken>`)                           |
+
+- Access Token(15분)은 응답 본문으로 받아 브라우저 메모리에만 둔다. Refresh Token(14일)은 `HttpOnly` 쿠키 `wb_rt`로만 오가며, DB에는 해시만 저장된다.
+- 화면: `/signup`, `/login`, `/me`(로그인 필요. 로그인하지 않았으면 `/login?returnTo=/me`로 이동하고, 로그인 후 원래 화면으로 돌아온다).
+- 환경 변수는 `.env.example`의 '인증' 항목을 본다. `JWT_ACCESS_SECRET`을 비워 두면 개발 서버가 실행마다 임시 키를 만든다(경고 출력). **운영에서는 32자 이상의 키가 없으면 서버가 시작하지 않는다.**
+- 상세 명세와 정책 근거: `planning/API_SPEC_v1.md` §3·§3.1, `planning/DECISIONS.md` D-64~D-69.
