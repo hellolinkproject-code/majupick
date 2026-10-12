@@ -1,0 +1,123 @@
+:root {
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    'Noto Sans KR',
+    sans-serif;
+  color: #1f2937;
+  background: #f9fafb;
+  line-height: 1.5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+}
+
+a {
+  color: #2563eb;
+}
+
+.layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.layout__header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 1.5rem;
+  background: #fff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.layout__logo {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: inherit;
+  text-decoration: none;
+}
+
+.layout__badge {
+  padding: 0.125rem 0.5rem;
+  font-size: 0.75rem;
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 999px;
+}
+
+.layout__main {
+  flex: 1;
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+.layout__footer {
+  padding: 1rem 1.5rem;
+  font-size: 0.875rem;
+  color: #6b7280;
+  text-align: center;
+}
+
+.home__lead {
+  color: #4b5563;
+}
+
+.checklist {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.checklist > div {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+}
+
+.checklist dt {
+  font-weight: 600;
+}
+
+.checklist dd {
+  margin: 0;
+}
+
+.status {
+  font-weight: 600;
+}
+
+.status--ok {
+  color: #047857;
+}
+
+.status--pending {
+  color: #6b7280;
+}
+
+.status--error {
+  color: #b91c1c;
+}
+
+.not-found {
+  text-align: center;
+}
+
+@media (max-width: 480px) {
+  .layout__main {
+    padding: 1.25rem 1rem;
+  }
+}
