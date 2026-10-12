@@ -1,6 +1,6 @@
 # WorkBridge ERD v1
 
-> 상태: **설계 v1 (DB 미생성, 마이그레이션 없음)**
+> 상태: **설계 v1 + STEP 03-B 부분 구현.** 15개 중 9개 테이블(사용자·인증·프로필·기술 스택·프로젝트)을 첫 마이그레이션 `20261012083722_init_database_foundation`으로 로컬 PostgreSQL 18에 적용했다. 나머지 6개는 해당 기능 단계에서 추가한다. 구현과 설계의 차이는 §7에 있다.
 > 근거: RFP 2부 §3·§4·§7, [DECISIONS.md](./DECISIONS.md)의 확정 항목, [ERD_DRAFT.md](./ERD_DRAFT.md)(초안, 이 문서로 대체)
 > DB: PostgreSQL. 타입은 PostgreSQL 기준으로 적고, Prisma 매핑은 §6에 정리한다.
 > 고정 기술 스택(D-02)이 확인되지 않았으므로 DB·ORM 선택은 잠정이다.
@@ -551,3 +551,40 @@ erDiagram
 | 부분 UNIQUE·CHECK 제약 | Prisma 스키마로 표현이 어려운 항목은 마이그레이션 SQL에 직접 추가(설정 단계에서 Prisma 버전의 지원 여부를 확인) |
 | 행 잠금 | `$transaction` 안에서 `$queryRaw\`SELECT … FOR UPDATE\`` |
 | 금액 | `BigInt`(PostgreSQL `bigint`, D-51). Prisma는 JS `BigInt`로 돌려주므로 `JSON.stringify`가 그대로는 실패한다. 응답 직렬화 시 금액을 **10진수 문자열**로 바꾸고, 요청의 금액 문자열(또는 안전 정수)을 `BigInt`로 바꾸는 변환 함수를 한 곳에 둔다. 계산은 `BigInt`끼리만 한다 |
+
+---
+
+## 7. STEP 03-B 구현 현황 (2026-10-12)
+
+### 7.1 적용 결과
+
+| 항목 | 내용 |
+|---|---|
+| 스키마 | `apps/api/prisma/schema.prisma` (Prisma 7.10.0) |
+| 마이그레이션 | `apps/api/prisma/migrations/20261012083722_init_database_foundation/migration.sql` |
+| 적용 DB | `workbridge_dev`(개발), `workbridge_test`(테스트) 각각 `prisma migrate deploy`로 적용. `workbridge_shadow`는 마이그레이션 생성 때만 Prisma가 사용 |
+| 생성 테이블 (9) | `users`, `social_accounts`, `refresh_tokens`, `client_profiles`, `freelancer_profiles`, `tech_stacks`, `freelancer_tech_stacks`, `project_tech_stacks`, `projects` |
+| enum (5) | `user_role`, `oauth_provider`, `project_status`(7개 값), `project_category`, `business_field` |
+| 외래키 (10) | §3 표의 FK 전부. ON DELETE 규칙은 아래 §7.2 |
+| UNIQUE (5) | `users.email`, `social_accounts(provider, provider_user_id)`, `social_accounts(user_id, provider)`, `refresh_tokens.token_hash`, `tech_stacks.normalized_name` (+ 연결 테이블 2개의 복합 PK) |
+| CHECK (5, SQL 수동 추가) | `client_profiles_business_field_etc_check`, `freelancer_profiles_career_years_check`(`>= 0`), `freelancer_profiles_hourly_rate_check`(`> 0`), `projects_budget_check`(`> 0`), `projects_recruit_dates_check` |
+| 인덱스 | §3.7의 projects 인덱스 6개(부분 인덱스 2개 포함), `refresh_tokens(user_id)`, 연결 테이블의 `tech_stack_id` |
+| 타입 | 금액 `bigint`(`budget`, `hourly_rate`), 모집일 `date`, 그 밖의 시각 `timestamptz(3)`(UTC). `timestamp without time zone` 컬럼은 없다 |
+| 검증 | 실제 DB 카탈로그 조회 + 통합 테스트 22개(`apps/api/test/db/`) 통과 |
+
+아직 만들지 않은 테이블: `applications`, `contracts`, `payments`, `reviews`, `notifications`, `bookmarks`. 각 기능 단계에서 새 마이그레이션으로 추가한다(기존 마이그레이션 파일은 수정하지 않는다).
+
+### 7.2 설계와 다른 점과 이유
+
+| # | 설계(§3) | 구현 | 이유 |
+|---|---|---|---|
+| 1 | `id`는 `integer GENERATED ALWAYS AS IDENTITY` | `SERIAL`(정수 + 시퀀스) | Prisma `@default(autoincrement())`는 PostgreSQL에서 `SERIAL`을 만든다. SQL을 identity로 고치면 다음 마이그레이션 때 Prisma가 스키마와 DB의 차이(drift)로 판단한다. 앱 입장에서 동작(자동 증가 정수)은 같다 |
+| 2 | `project_tech_stacks.project_id`의 삭제 규칙 미기재 | `ON DELETE CASCADE` | 연결 행은 프로젝트 없이는 의미가 없다. 프로젝트는 소프트 삭제(D-53)라 실제로 지워질 일은 거의 없다 |
+| 3 | 연결 테이블의 `tech_stack_id` 삭제 규칙 미기재 | `ON DELETE RESTRICT` | 사용 중인 기술 스택을 지우면 프로젝트·프리랜서의 기술 정보가 조용히 사라진다. 통합은 서비스에서 명시적으로 처리한다 |
+| 4 | FK의 ON UPDATE 미기재 | `ON UPDATE CASCADE` | Prisma 기본값. PK를 바꾸는 기능이 없으므로 실제 영향 없음 |
+| 5 | `client_profiles`·`freelancer_profiles.updated_at` 기본값 미기재 | `DEFAULT CURRENT_TIMESTAMP` + Prisma `@updatedAt` | 생성 시점에도 값이 있어야 NOT NULL을 지킬 수 있다 |
+| 6 | CHECK "`business_field = 'ETC'`일 때만 값 허용" | `business_field_etc IS NULL OR business_field IS NOT DISTINCT FROM 'ETC'` | 단순 비교(`= 'ETC'`)는 `business_field`가 NULL이면 결과가 NULL이 되어 CHECK를 통과한다. NULL도 거부하도록 썼다 |
+| 7 | 부분 인덱스 "Prisma 지원 여부 확인" | Prisma `previewFeatures = ["partialIndexes"]` + `where: raw("deleted_at IS NULL")` | Prisma 7.10에서 미리보기 기능으로 지원. 생성된 SQL에 `WHERE (deleted_at IS NULL)`이 들어간 것을 확인했다 |
+| 8 | CHECK 제약은 마이그레이션 SQL에 직접 추가 | 설계대로 | Prisma 스키마는 CHECK를 표현하지 못하고, Prisma는 CHECK를 drift로 보지 않는다(`prisma migrate diff` 결과 "No difference detected") |
+
+- 이메일 소문자 정규화는 설계대로 서비스에서 처리한다(DB CHECK 없음).

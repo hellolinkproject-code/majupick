@@ -133,6 +133,14 @@
 | D-59 | 카테고리·사업 분야 값 목록 | 선택형이라고만 씀(3.1.3, 3.2.1) | 카테고리: 웹, 모바일, 디자인, 마케팅, 데이터·AI, 기획, 기타. 사업 분야: IT, 커머스, 교육, 금융, 헬스케어, 미디어, 제조, 기타 | 팀 조사 후 조정 | 준비 | 제안 |
 | D-60 | 비밀번호 규칙 | 미정 | 8자 이상(영문·숫자 포함 여부는 팀 결정) | 길이만 검사 | 페이즈 1 | 제안 |
 
+### 2.8 STEP 03-B에서 추가된 항목
+
+| ID | 주제 | RFP | 추천안 / 결정 | 대안 | 확정 시점 | 상태 |
+|---|---|---|---|---|---|---|
+| D-61 | 로컬 DB 구성 | 미정 | **로컬 PostgreSQL 18에 DB 3개 분리**(`workbridge_dev`·`workbridge_test`·`workbridge_shadow`). 앱 전용 계정 `workbridge_app`(관리자 권한 없음)이 소유. 원격 DB는 `ALLOW_REMOTE_DATABASE=true`일 때만 연결 | Docker, Supabase(추가 설치·계정 필요) | STEP 03-B | **확정** (STEP 03-B 지시) |
+| D-62 | 마이그레이션 적용 방식 | 미정 | 생성은 `prisma migrate dev --create-only`(shadow DB 사용) → SQL 검토 → 적용은 개발·테스트 DB 모두 `prisma migrate deploy`. `migrate reset`·`db push`는 쓰지 않는다. 테스트 DB 대상에서는 `dev`·`reset`·`push` 명령을 설정 파일이 거부한다 | `prisma migrate dev`로 바로 적용(드리프트 시 DB 초기화를 제안함) | STEP 03-B | **확정** |
+| D-63 | 테스트 DB 격리 | 미정 | 실제 DB 테스트는 `TEST_DATABASE_URL`(이름이 `_test`로 끝나야 함)만 사용. 테스트 실행 중(`NODE_ENV=test` 또는 `VITEST`) 개발 DB 연결은 코드에서 거부. 테스트는 실행마다 표시(runId)를 붙인 행만 만들고 끝나면 그 행만 지운다 | 매 테스트 전 전체 TRUNCATE(다른 데이터까지 지움) | STEP 03-B | **확정** |
+
 ---
 
 ## 3. 확정 기록 양식
@@ -174,3 +182,12 @@
 
 - ERD_DRAFT.md는 ERD_v1.md로 대체되었다. 두 문서가 다르면 **ERD_v1.md가 우선**이다. REQUIREMENTS.md의 '예상 화면/API' 열도 API_SPEC_v1.md가 우선이다.
 - STEP 02 이전 문서 6개의 원본은 `C:\Users\jun\Desktop\workbridge-backups\planning_20261012_STEP01\`에 백업되어 있다.
+
+### 4.3 STEP 03-B (2026-10-12)
+
+| # | 대상 | 이전 | 변경 | 근거 |
+|---|---|---|---|---|
+| 1 | ERD_v1 | 설계만 있음(DB 미생성) | 9개 테이블 마이그레이션 적용. 설계와 다른 점 8가지는 ERD_v1 §7.2 | STEP 03-B 범위: 사용자·인증·프로필·기술 스택·프로젝트 |
+| 2 | ERD_v1 §3 `id` | `GENERATED ALWAYS AS IDENTITY` | `SERIAL` | Prisma `autoincrement()`의 PostgreSQL 매핑. 동작 동일, drift 방지(ERD_v1 §7.2 #1) |
+| 3 | TECH_STACK §5 | `DATABASE_URL` 1개 | DB URL 3개 + `ALLOW_REMOTE_DATABASE` | D-61, D-63 |
+| 4 | D-02 | 확인 필요 | **변동 없음.** DB는 로컬 PostgreSQL 18 + Prisma 7.10.0으로 구축(TECH_STACK §7) | 고정 기술 스택 목록 여전히 미공지 |

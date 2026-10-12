@@ -205,3 +205,29 @@ workbridge/
 
 - 패키지 버전은 이번 문서에서 고정하지 않는다. 개발 환경 설정 단계에서 `npm view <패키지> version`으로 최신 안정 버전을 확인해 고정하고, 메이저 버전 차이로 생기는 API 변경(예: Express 5, Prisma 최신 버전의 설정 방식)은 그때 공식 문서로 확인한다.
 - Node.js 버전은 Vercel·Render가 지원하는 LTS 중에서 고른다.
+
+---
+
+## 7. STEP 03-B 구현 결과: 데이터베이스 (2026-10-12)
+
+| 항목 | 실제 구성 | 비고 |
+|---|---|---|
+| DB 서버 | 로컬 PostgreSQL 18.6 (Windows 서비스 `postgresql-x64-18`) | Docker·Supabase는 쓰지 않는다. 배포용 DB(§4.5)는 배포 단계에서 정한다 |
+| DB 분리 | `workbridge_dev`(개발), `workbridge_test`(자동 테스트), `workbridge_shadow`(Prisma 마이그레이션 생성용) | 세 DB 모두 앱 전용 계정 `workbridge_app` 소유. 시간대 UTC, `PUBLIC` 권한 회수 |
+| 앱 계정 | `workbridge_app` | superuser·createdb·createrole 권한 없음. 생성 스크립트: `apps/api/scripts/setup-local-db.ps1` |
+| ORM | Prisma 7.10.0 (`prisma`, `@prisma/client`) | 버전 고정(`^` 없음) |
+| 드라이버 | `@prisma/adapter-pg` 7.10.0 + `pg` 8.x | Prisma 7은 드라이버 어댑터로 연결한다 |
+| 클라이언트 생성 | `prisma-client` 생성기 → `apps/api/src/generated/prisma` (ESM, Git 제외) | Node 26이 생성된 `.ts` 파일을 타입 제거 방식으로 바로 불러온다. 프로젝트 코드는 JavaScript 그대로다 |
+| 연결 설정 | `apps/api/prisma.config.js` | 루트 `.env`를 읽고 `src/config/database.js`로 검증한 URL만 Prisma CLI에 넘긴다 |
+| 테스트 | Vitest 2종 설정: `vitest.config.js`(단위, DB 없음), `vitest.db.config.js`(실제 PostgreSQL, `workbridge_test`만) | 테스트 실행 중에는 개발 DB 연결을 코드에서 거부한다 |
+
+### 7.1 §5 환경 변수 목록과 다른 점
+
+| §5 초안 | 실제 | 이유 |
+|---|---|---|
+| `DATABASE_URL` 1개 | `DATABASE_URL`, `TEST_DATABASE_URL`, `SHADOW_DATABASE_URL`, `ALLOW_REMOTE_DATABASE` | 테스트가 개발 데이터를 지우거나 만들지 못하게 DB를 분리했다. 원격 DB는 `ALLOW_REMOTE_DATABASE=true`일 때만 연결해 운영 DB 오접속을 막는다 |
+
+### 7.2 알려진 사항
+
+- `npm audit`이 high 4건을 보고한다. 모두 개발용 `prisma` CLI의 하위 의존성(`@prisma/config` 경유)이다. 제안된 자동 수정은 Prisma 6으로 내리는 것이라 적용하지 않았다. 런타임 의존성(`@prisma/client`, `@prisma/adapter-pg`, `pg`)과는 무관하다.
+- npm이 `prisma`, `@prisma/engines`의 설치 스크립트에 대해 경고를 표시할 수 있다. 동작에는 영향이 없다.

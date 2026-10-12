@@ -4,7 +4,15 @@ import reactHooks from 'eslint-plugin-react-hooks';
 import reactRefresh from 'eslint-plugin-react-refresh';
 
 export default [
-  { ignores: ['**/node_modules/**', '**/dist/**', '**/coverage/**', 'planning/**'] },
+  {
+    ignores: [
+      '**/node_modules/**',
+      '**/dist/**',
+      '**/coverage/**',
+      'planning/**',
+      'apps/api/src/generated/**',
+    ],
+  },
   js.configs.recommended,
   {
     rules: {

@@ -1,0 +1,249 @@
+// WorkBridge Prisma schema — planning/ERD_v1.md 기준 (STEP 03-B 범위 9개 테이블)
+// - 금액은 bigint(원), 상한 없음. API에서는 10진수 문자열로 직렬화한다(D-51, D-42).
+// - 시각은 timestamptz(UTC 저장), 모집 날짜는 date(KST 날짜)다(D-41, D-58).
+// - Prisma로 표현할 수 없는 CHECK 제약은 마이그레이션 SQL에 직접 추가했다.
+// - DB 연결 URL은 이 파일이 아니라 prisma.config.js에서 읽는다.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "ts"
+  previewFeatures     = ["partialIndexes"]
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// enums
+// ---------------------------------------------------------------------------
+
+enum UserRole {
+  CLIENT
+  FREELANCER
+
+  @@map("user_role")
+}
+
+enum OAuthProvider {
+  GOOGLE
+
+  @@map("oauth_provider")
+}
+
+/// 7개 상태(D-03). 화면의 한국어 이름은 프론트엔드에서 매핑한다.
+enum ProjectStatus {
+  SCHEDULED
+  RECRUITING
+  CLOSED
+  CONTRACTING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+
+  @@map("project_status")
+}
+
+/// 제안(D-59)
+enum ProjectCategory {
+  WEB
+  MOBILE
+  DESIGN
+  MARKETING
+  DATA_AI
+  PLANNING
+  ETC
+
+  @@map("project_category")
+}
+
+/// 제안(D-59)
+enum BusinessField {
+  IT
+  COMMERCE
+  EDUCATION
+  FINANCE
+  HEALTHCARE
+  MEDIA
+  MANUFACTURING
+  ETC
+
+  @@map("business_field")
+}
+
+// ---------------------------------------------------------------------------
+// 사용자·인증
+// ---------------------------------------------------------------------------
+
+model User {
+  id              Int       @id @default(autoincrement())
+  /// 저장 전 소문자·공백 제거 정규화
+  email           String    @unique @db.VarChar(255)
+  /// bcrypt 해시. 소셜로만 가입한 계정은 NULL
+  passwordHash    String?   @map("password_hash") @db.VarChar(255)
+  name            String    @db.VarChar(50)
+  /// 소셜 최초 로그인 직후만 NULL
+  role            UserRole?
+  profileImageUrl String?   @map("profile_image_url") @db.VarChar(500)
+  bio             String?
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  clientProfile     ClientProfile?
+  freelancerProfile FreelancerProfile?
+  socialAccounts    SocialAccount[]
+  refreshTokens     RefreshToken[]
+  projects          Project[]
+  createdTechStacks TechStack[]
+
+  @@map("users")
+}
+
+model SocialAccount {
+  id             Int           @id @default(autoincrement())
+  userId         Int           @map("user_id")
+  provider       OAuthProvider
+  /// Google `sub`
+  providerUserId String        @map("provider_user_id") @db.VarChar(255)
+  /// 연동 시점에 제공자가 인증 완료로 확인한 이메일
+  emailAtLink    String        @map("email_at_link") @db.VarChar(255)
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerUserId])
+  @@unique([userId, provider])
+  @@map("social_accounts")
+}
+
+model RefreshToken {
+  id        Int       @id @default(autoincrement())
+  userId    Int       @map("user_id")
+  /// SHA-256 해시(hex 64자). 원문은 저장하지 않는다
+  tokenHash String    @unique @map("token_hash") @db.Char(64)
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(3)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// 역할별 프로필 (완성 여부는 서비스 함수가 판정, D-05 미확정)
+// ---------------------------------------------------------------------------
+
+model ClientProfile {
+  userId           Int            @id @map("user_id")
+  companyName      String?        @map("company_name") @db.VarChar(100)
+  businessField    BusinessField? @map("business_field")
+  /// business_field = 'ETC'일 때만 값 허용(CHECK)
+  businessFieldEtc String?        @map("business_field_etc") @db.VarChar(100)
+  websiteUrl       String?        @map("website_url") @db.VarChar(500)
+  updatedAt        DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("client_profiles")
+}
+
+model FreelancerProfile {
+  userId       Int              @id @map("user_id")
+  mainCategory ProjectCategory? @map("main_category")
+  /// CHECK >= 0
+  careerYears  Int?             @map("career_years")
+  /// 시간당 단가(원). CHECK > 0, 상한 없음
+  hourlyRate   BigInt?          @map("hourly_rate")
+  portfolioUrl String?          @map("portfolio_url") @db.VarChar(500)
+  updatedAt    DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user       User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  techStacks FreelancerTechStack[]
+
+  @@map("freelancer_profiles")
+}
+
+// ---------------------------------------------------------------------------
+// 기술 스택
+// ---------------------------------------------------------------------------
+
+model TechStack {
+  id             Int      @id @default(autoincrement())
+  /// 표시 이름(예: React)
+  name           String   @db.VarChar(50)
+  /// 소문자 + 공백·점·하이픈 제거(예: node.js → nodejs)
+  normalizedName String   @unique @map("normalized_name") @db.VarChar(50)
+  isCustom       Boolean  @default(false) @map("is_custom")
+  createdById    Int?     @map("created_by_id")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  createdBy   User?                 @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  projects    ProjectTechStack[]
+  freelancers FreelancerTechStack[]
+
+  @@map("tech_stacks")
+}
+
+model FreelancerTechStack {
+  freelancerId Int @map("freelancer_id")
+  techStackId  Int @map("tech_stack_id")
+
+  freelancer FreelancerProfile @relation(fields: [freelancerId], references: [userId], onDelete: Cascade)
+  techStack  TechStack         @relation(fields: [techStackId], references: [id], onDelete: Restrict)
+
+  @@id([freelancerId, techStackId])
+  @@index([techStackId])
+  @@map("freelancer_tech_stacks")
+}
+
+model ProjectTechStack {
+  projectId   Int @map("project_id")
+  techStackId Int @map("tech_stack_id")
+
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  techStack TechStack @relation(fields: [techStackId], references: [id], onDelete: Restrict)
+
+  @@id([projectId, techStackId])
+  @@index([techStackId])
+  @@map("project_tech_stacks")
+}
+
+// ---------------------------------------------------------------------------
+// 프로젝트
+// ---------------------------------------------------------------------------
+
+model Project {
+  id               Int             @id @default(autoincrement())
+  clientId         Int             @map("client_id")
+  title            String          @db.VarChar(100)
+  description      String
+  category         ProjectCategory
+  /// KST 날짜. NULL이면 등록 즉시 모집 중
+  recruitStartDate DateTime?       @map("recruit_start_date") @db.Date
+  /// KST 날짜. 그날 23:59:59(KST)까지 모집
+  recruitEndDate   DateTime        @map("recruit_end_date") @db.Date
+  /// 원. CHECK > 0, 상한 없음
+  budget           BigInt
+  status           ProjectStatus
+  closedAt         DateTime?       @map("closed_at") @db.Timestamptz(3)
+  cancelledAt      DateTime?       @map("cancelled_at") @db.Timestamptz(3)
+  /// 소프트 삭제
+  deletedAt        DateTime?       @map("deleted_at") @db.Timestamptz(3)
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  client     User               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  techStacks ProjectTechStack[]
+
+  @@index([status, recruitEndDate], map: "projects_status_recruit_end_date_active_idx", where: raw("deleted_at IS NULL"))
+  @@index([status, recruitStartDate], map: "projects_status_recruit_start_date_active_idx", where: raw("deleted_at IS NULL"))
+  @@index([category])
+  @@index([createdAt(sort: Desc)])
+  @@index([budget(sort: Desc)])
+  @@index([clientId, createdAt(sort: Desc)])
+  @@map("projects")
+}
