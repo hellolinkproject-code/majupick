@@ -166,6 +166,17 @@ Google 로그인은 D-23·D-24를 구현하면서, RFP가 정하지 않은 프�
 | D-73 | 역할 미선택 권한 | 최초 소셜 로그인 시 역할 선택(3.1.2) | 역할 NULL이어도 로그인(AUTH-04·05·09)은 가능하다. 그 외 보호 API는 403 `ROLE_REQUIRED`. 화면은 `/select-role`만 열고, 선택 후 `returnTo`가 있으면 그 경로, 없으면 `/me`. 한 번 정한 역할은 `AUTH-09`가 409로 거절해 프로필 수정으로 바꾸지 못한다 | 역할 전 전면 403(내 정보 조회까지 막힘), 역할 변경 허용 | STEP 04-B | 제안 (구현) |
 | D-74 | OAuth 리다이렉트와 미설정 | 미정 | 콜백 이후 이동은 `CORS_ORIGIN`의 첫 출처뿐. `returnTo`는 내부 경로만. Redirect URI는 그 출처의 `/api/auth/oauth/google/callback`(로컬은 Vite 프록시 `http://localhost:5173/...`)과 같아야 한다. 세 환경 변수가 없으면 시작 API는 503이고 화면은 설정 안내를 보여 준다. 일부만 있으면 서버가 시작하지 않는다 | 상대 경로 302(API 포트로 떨어질 수 있음), 설정 없이도 Google 버튼 노출 | STEP 04-B | 제안 (구현) |
 
+### 2.11 STEP 04-B-2에서 추가된 항목
+
+역할별 프로필(A-09~A-13)은 기존 스키마(ERD_v1)만으로 구현했다. 마이그레이션은 없다. RFP와 DB 구조가 충돌하는 항목은 없었고, 설계에 없는 필수 항목(예: 의뢰인 연락처)은 추가하지 않았다.
+
+| ID | 주제 | RFP | 추천안 / 결정 | 대안 | 확정 시점 | 상태 |
+|---|---|---|---|---|---|---|
+| D-75 | 기본 기술 스택 목록 | 선택형 + 직접 추가(3.1.3) | D-59 카테고리별 대표 기술 27개: JavaScript, TypeScript, HTML/CSS, React, Vue, Next.js, Node.js, Java, Spring, Python, PHP, SQL, NoSQL, AWS, Docker, Android, iOS, Flutter, React Native, Figma, Photoshop, Illustrator, Google Analytics, SEO, Data Analysis, Machine Learning, Git. 비슷한 기술은 하나로 묶고(MySQL·PostgreSQL → SQL) 나머지는 `PROF-07`로 추가. `normalized_name` UNIQUE + `skipDuplicates`로 **멱등 시드**(`npm run db:seed:tech-stacks -w apps/api`, 테스트 DB는 `-- --test`). 기존 행(커스텀 포함)은 바꾸지 않고, 사용자·프로젝트 같은 더미 데이터는 넣지 않는다 | 대량 목록(검색은 편하지만 관리 부담), 시드 없음(첫 사용자가 모두 직접 입력) | STEP 04-B-2 | 제안 (구현) |
+| D-76 | 프로필 이미지 처리·저장소 | 클라우드 스토리지 1종(§5), D-29 | **처리:** 선언 MIME(jpg/png/webp) → 파일 앞부분 바이트로 실제 형식 판별 → `sharp` 디코딩(형식 일치, 2,400만 화소 상한) → 긴 변 512px 이하 WebP로 재인코딩(EXIF·위치 정보 제거) → 무작위 16바이트 이름. SVG·실행 파일·위장 파일은 415/400. 업로드가 사용자 이미지를 바로 바꾸고 이전 파일을 지운다. `PROF-01`은 `null`(삭제)만 받아 외부 URL 저장을 막는다. 응답·로그에 서버 경로를 넣지 않는다. **저장소:** 지금은 로컬 디스크(`apps/api/uploads/profile-images`, Git 제외, `UPLOAD_DIR`로 변경). 저장소는 `save`·`remove`·`directory` 어댑터로 감싸 교체할 수 있다. **운영 전 결정 필요:** Render 등 무료 인스턴스 디스크는 재배포 시 사라진다. 후보 ① Supabase Storage(D-29, 무료 플랜 저장 1GB 수준), ② Render 영구 디스크(유료 인스턴스 + GB당 월 과금), ③ S3·Cloudinary. 요금은 공개 가격 기준 추정이며 연결 전에 다시 확인한다. **사용자 승인 없이 유료·외부 저장소를 연결하지 않는다** | 원본 그대로 저장(EXIF·위장 파일 위험), 클라이언트가 URL을 직접 저장(외부 이미지·고아 파일) | 배포 전 | 제안 (로컬 구현) |
+| D-77 | 프로필 저장 방식·입력 범위 | 미정 | `PUT`은 전체 교체이며 D-05 필수 항목이 없으면 400(반쯤 채운 저장 없음). 공통 정보(`PATCH /users/me`)는 부분 수정. 대상은 토큰의 사용자이고 본문의 `userId`·`role`·`email`은 쓰지 않는다(이메일·역할은 400). 확인 순서: 로그인 → 역할 선택 → 역할 일치(403 `FORBIDDEN`) → 입력 검사. 저장은 사용자 행 `FOR UPDATE` 잠금 + 트랜잭션, 기술 스택은 존재 확인 후 연결을 통째로 교체. 범위: 이름 1~50자, 자기소개 2,000자, 회사명·기타 사업 분야 100자, URL 500자(http/https, 계정 정보 불가), 경력 0~80 정수, 기술 스택 1~20개(중복 불가), 시간당 단가 1~bigint 최대(문자열 권장, D-51) | 모든 항목 선택 입력(PATCH), 본문 사용자 ID 허용 | STEP 04-B-2 | 제안 (구현) |
+| D-78 | 필수 프로필 검사 위치 | 프로젝트 등록·지원 시 유도(3.1.3, D-56) | 가입·로그인·조회·프로필 편집은 미완성이어도 허용. 역할 선택과 프로필 완성은 별개 상태(`role`, `profileCompletion`). 프로젝트 등록·지원 API는 `authenticate → requireRole → (역할 확인) → requireCompleteProfile` 순서로 붙여 403 `PROFILE_INCOMPLETE` + `missingFields`를 준다(역할 없음은 항상 `ROLE_REQUIRED`가 먼저). 화면은 `/me?returnTo=<원래 경로>`로 보내고, 완성되면 돌아가기 링크를 보여 준다 | 가입 직후 강제(D-56 위반), 화면에서만 검사(API 우회 가능) | STEP 04-B-2 | 제안 (구현) |
+
 ---
 
 ## 3. 확정 기록 양식
@@ -235,3 +246,14 @@ Google 로그인은 D-23·D-24를 구현하면서, RFP가 정하지 않은 프�
 | 2 | ERD | `social_accounts`만 | `oauth_transactions` 추가(로그인 state·연동 확인, 10분, 일회용) | D-71. 사용자 데이터는 지우지 않는 추가 마이그레이션 |
 | 3 | D-24 | 비밀번호 확인 후 연동 | 비밀번호가 없거나 다른 Google 계정이 이미 있으면 연결 거부(`OAUTH_LINK_UNAVAILABLE`) | D-72 |
 | 4 | D-02 | 확인 필요 | **변동 없음.** `google-auth-library` 추가 | 고정 기술 스택 목록 여전히 미공지 |
+
+### 4.6 STEP 04-B-2 (2026-10-13)
+
+| # | 대상 | 이전 | 변경 | 근거 |
+|---|---|---|---|---|
+| 1 | API_SPEC_v1 PROF-01~04, 06, 07, SRCH-03 | 설계 | 구현·실제 PostgreSQL로 검증. 명세와 다른 점은 API_SPEC_v1 §4.1 | STEP 04-B-2. PROF-05(공개 프로필)는 리뷰 집계와 함께 이후 단계 |
+| 2 | PROF-04 응답 | `{ url }` → FE가 PROF-01로 저장 | 업로드가 바로 저장하고 `UserMe` 반환 | D-76 |
+| 3 | D-29 | Supabase Storage | 개발은 로컬 디스크. 운영 저장소는 사용자 승인 후 결정 | D-76 |
+| 4 | ERD | - | **변경 없음**(마이그레이션 없음). 기본 기술 스택 27개를 개발·테스트 DB에 시드 | D-75 |
+| 5 | D-02 | 확인 필요 | **변동 없음.** `multer`(업로드), `sharp`(이미지 검증·재인코딩) 추가 | 고정 기술 스택 목록 여전히 미공지 |
+| 6 | `.gitignore` | `uploads/`(모든 위치) | `/uploads/`, `apps/api/uploads/`만 제외 | 소스 폴더 `apps/api/src/modules/uploads/`까지 제외되던 문제 |

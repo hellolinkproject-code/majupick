@@ -22,6 +22,10 @@ function renderApp(path, handlers) {
   api = installMockApi({
     'GET /health': () => ({ data: { data: { status: 'ok' } } }),
     'GET /auth/oauth/google/status': () => ({ data: { data: { enabled: false } } }),
+    'GET /meta/options': () => ({
+      data: { data: { projectCategories: [], businessFields: [] } },
+    }),
+    'GET /tech-stacks': () => ({ data: { data: [] } }),
     ...handlers,
   });
   router = createMemoryRouter(routes, { initialEntries: [path] });

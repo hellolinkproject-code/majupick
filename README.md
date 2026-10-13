@@ -2,7 +2,7 @@
 
 의뢰인과 프리랜서를 연결하는 프로젝트 중개 플랫폼 (코드잇 풀스택 JavaScript 과제).
 
-> 현재 단계: **Google 로그인·역할 선택(STEP 04-B)**. 이메일 회원가입·로그인(STEP 04-A)도 그대로 동작한다. 화면은 홈·로그인·회원가입·Google 완료·계정 연결·역할 선택·내 프로필·404. 로컬 PostgreSQL에 사용자·프로필·기술 스택·프로젝트·OAuth 상태 테이블이 있다.
+> 현재 단계: **역할별 프로필(STEP 04-B-2)**. 이메일 회원가입·로그인(STEP 04-A), Google 로그인·역할 선택(STEP 04-B)도 그대로 동작한다. 화면은 홈·로그인·회원가입·Google 완료·계정 연결·역할 선택·내 프로필(의뢰인/프리랜서 프로필 편집, 프로필 이미지)·404. 로컬 PostgreSQL에 사용자·프로필·기술 스택·프로젝트·OAuth 상태 테이블이 있다.
 > 기획·설계 문서는 [`planning/`](./planning)에 있다.
 
 ## 기술 스택
@@ -96,7 +96,10 @@ WorkBridge는 내 PC에 설치된 PostgreSQL 18을 쓴다. 용도별로 DB 3개�
 npm run db:migrate:deploy -w apps/api   # 개발 DB
 npm run db:migrate:test -w apps/api     # 테스트 DB
 npm run db:migrate:status -w apps/api   # 개발 DB 적용 상태 확인
+npm run db:seed:tech-stacks -w apps/api # 기본 기술 스택 27개(여러 번 실행해도 같음)
 ```
+
+`db:seed:tech-stacks`는 기술 스택 기본 선택지만 넣는다. 사용자·프로젝트 같은 더미 데이터는 넣지 않고, 이미 있는 행은 바꾸지 않는다. 테스트 DB에 넣을 때는 `npm run db:seed:tech-stacks -w apps/api -- --test`.
 
 스키마(`schema.prisma`)를 바꿔 새 마이그레이션을 만들 때는 다음 순서를 따른다.
 
@@ -110,11 +113,11 @@ npm run db:migrate:status -w apps/api   # 개발 DB 적용 상태 확인
 
 ### 3. 테스트
 
-| 명령                               | 무엇을 검사하나                                                                           | DB 필요 |
-| ---------------------------------- | ----------------------------------------------------------------------------------------- | ------- |
-| `npm run test`                     | API·화면 단위 테스트                                                                      | 아니요  |
-| `npm run test:db`                  | 실제 PostgreSQL에서 테이블·제약·관계·금액(bigint)·날짜 처리, 인증 API (`workbridge_test`) | 예      |
-| `npm run test:scripts -w apps/api` | DB 준비 PowerShell 스크립트 정적 검사                                                     | 아니요  |
+| 명령                               | 무엇을 검사하나                                                                                  | DB 필요 |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------ | ------- |
+| `npm run test`                     | API·화면 단위 테스트                                                                             | 아니요  |
+| `npm run test:db`                  | 실제 PostgreSQL에서 테이블·제약·관계·금액(bigint)·날짜 처리, 인증·프로필 API (`workbridge_test`) | 예      |
+| `npm run test:scripts -w apps/api` | DB 준비 PowerShell 스크립트 정적 검사                                                            | 아니요  |
 
 - DB 테스트는 `workbridge_test`에만 연결한다. 테스트 실행 중에는 개발 DB 연결을 코드가 거부한다.
 - DB 테스트는 실행할 때마다 표시를 붙인 테스트용 행만 만들고, 끝나면 그 행만 지운다.
@@ -164,3 +167,25 @@ Google 로그인 버튼은 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_R
    ```
 
 7. API 서버를 다시 시작한다. `GET /api/auth/oauth/google/status`가 `{ "data": { "enabled": true } }`이면 로그인·회원가입 화면에 **Google로 계속하기**가 나타난다.
+
+## 프로필 (의뢰인·프리랜서)
+
+| API                                     | 권한          | 설명                                                               |
+| --------------------------------------- | ------------- | ------------------------------------------------------------------ |
+| `GET /api/auth/me`                      | 로그인        | 내 정보·역할별 프로필·완성 여부(`profileCompletion`)               |
+| `PATCH /api/users/me`                   | 로그인 + 역할 | 이름·자기소개 수정, `profileImageUrl: null`로 이미지 삭제          |
+| `PUT /api/users/me/client-profile`      | 의뢰인        | 회사명·사업 분야(필수), 기타 사업 분야, 웹사이트                   |
+| `PUT /api/users/me/freelancer-profile`  | 프리랜서      | 주요 카테고리·기술 스택·경력·시간당 단가(필수), 포트폴리오 주소    |
+| `POST /api/uploads/profile-image`       | 로그인 + 역할 | 프로필 이미지 업로드(`multipart/form-data`, 필드 `file`, 5MB 이하) |
+| `GET /api/uploads/profile-images/:name` | 공개          | 저장된 프로필 이미지                                               |
+| `GET /api/tech-stacks?q=`               | 공개          | 기술 스택 검색                                                     |
+| `POST /api/tech-stacks`                 | 로그인 + 역할 | 목록에 없는 기술 스택 추가(같은 이름이 있으면 기존 항목 반환)      |
+| `GET /api/meta/options`                 | 공개          | 카테고리·사업 분야 선택지                                          |
+
+- 화면: `/me`에서 기본 정보·프로필 이미지와 역할별 프로필을 보고 수정한다. 프로필을 채우지 않아도 로그인과 다른 화면 이용은 그대로 된다. 필수 항목은 프로젝트 등록·지원 단계에서 요구한다.
+- 저장 대상은 항상 로그인한 사용자다. 다른 역할의 프로필은 403 `FORBIDDEN`, 역할을 고르지 않은 사용자는 403 `ROLE_REQUIRED`.
+- 시간당 단가는 DB `bigint`라 문자열로 주고받는다(예: `"50000"`).
+- 프로필 이미지는 JPG·PNG·WebP만 받는다. 서버가 실제 내용을 확인하고 512px 이하 WebP로 다시 저장하며(위치 정보 등 메타데이터 제거), 파일 이름은 무작위로 만든다. SVG나 이미지로 위장한 파일은 거부한다.
+- **이미지 저장 위치:** 지금은 로컬 폴더 `apps/api/uploads/profile-images`(Git 제외, `UPLOAD_DIR`로 변경). 무료 호스팅의 디스크는 재배포 때 지워지므로, 배포 전에 영구 저장소(Supabase Storage 등)를 비용 확인 후 정해야 한다(`planning/DECISIONS.md` D-76).
+- 기술 스택 기본 선택지는 `npm run db:seed:tech-stacks -w apps/api`로 넣는다.
+- 상세 명세와 정책 근거: `planning/API_SPEC_v1.md` §4·§4.1, `planning/DECISIONS.md` D-75~D-78.

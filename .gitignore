@@ -22,7 +22,8 @@ logs/
 npm-debug.log*
 tmp/
 .tmp/
-uploads/
+/uploads/
+apps/api/uploads/
 pgdata/
 *.sqlite
 *.db

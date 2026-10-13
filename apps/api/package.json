@@ -16,6 +16,7 @@
     "db:migrate:status": "prisma migrate status",
     "db:migrate:test": "node scripts/migrate-test-db.js",
     "db:check": "node --env-file-if-exists=../../.env scripts/check-db.js",
+    "db:seed:tech-stacks": "node --env-file-if-exists=../../.env scripts/seed-tech-stacks.js",
     "test:scripts": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/db-scripts.tests.ps1",
     "pretest:db": "prisma generate",
     "test:db": "vitest run --config vitest.db.config.js"
@@ -30,7 +31,9 @@
     "express-rate-limit": "^8.7.1",
     "google-auth-library": "^11.3.0",
     "jsonwebtoken": "^9.0.3",
-    "pg": "^8.23.1"
+    "multer": "^2.4.0",
+    "pg": "^8.23.1",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "prisma": "7.10.0",

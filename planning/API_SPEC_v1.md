@@ -63,6 +63,7 @@
 |---|---|---|
 | 400 | `VALIDATION_ERROR` | 입력 형식 오류. `details.fields`에 항목별 메시지 |
 | 400 | `PAYMENT_AMOUNT_MISMATCH` | 결제 금액이 서버 금액과 다름 |
+| 400 | `INVALID_IMAGE` | JPG·PNG·WebP 서명은 맞지만 이미지로 읽을 수 없음(손상·위장 파일) (STEP 04-B-2) |
 | 401 | `UNAUTHENTICATED` | 토큰 없음·잘못됨 |
 | 401 | `TOKEN_EXPIRED` | Access Token 만료 → FE가 `AUTH-03` 호출 후 재시도 |
 | 401 | `INVALID_CREDENTIALS` | 이메일·비밀번호 불일치 |
@@ -82,6 +83,7 @@
 | 409 | `FIELD_LOCKED` | 지원자가 있어 예산·마감일 변경 불가, 또는 거래 단계 진입 후 수정 불가 |
 | 409 | `ALREADY_SIGNED` | 이미 서명함 |
 | 409 | `ALREADY_REVIEWED` | 이미 리뷰 작성 |
+| 409 | `CONFLICT` | 같은 자원이 동시에 바뀌어 처리하지 못함. 다시 시도하면 된다(프로필 이미지 교체, STEP 04-B-2) |
 | 413 | `FILE_TOO_LARGE` | 업로드 용량 초과(D-29) |
 | 415 | `UNSUPPORTED_FILE_TYPE` | 허용하지 않는 파일 형식 |
 | 429 | `RATE_LIMITED` | 호출 제한 초과(로그인, AI) |
@@ -244,33 +246,40 @@
 
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
-| PROF-01 | PATCH | `/users/me` | 로그인 | A-09 | 설계 |
-| PROF-02 | PUT | `/users/me/client-profile` | CLIENT | A-10 | 설계 |
-| PROF-03 | PUT | `/users/me/freelancer-profile` | FREELANCER | A-11 | 설계 |
-| PROF-04 | POST | `/uploads/profile-image` | 로그인 | A-09, D-29 | 설계 |
+| PROF-01 | PATCH | `/users/me` | 로그인 | A-09 | 검증 |
+| PROF-02 | PUT | `/users/me/client-profile` | CLIENT | A-10 | 검증 |
+| PROF-03 | PUT | `/users/me/freelancer-profile` | FREELANCER | A-11 | 검증 |
+| PROF-04 | POST | `/uploads/profile-image` | 로그인 | A-09, D-29 | 검증(로컬 저장소) |
 | PROF-05 | GET | `/users/:userId` | 공개 | A-14, B-19 | 설계 |
-| PROF-06 | GET | `/tech-stacks` | 공개 | A-11, A-12, A-21 | 설계 |
-| PROF-07 | POST | `/tech-stacks` | 로그인 | A-11 | 설계 |
+| PROF-06 | GET | `/tech-stacks` | 공개 | A-11, A-12, A-21 | 검증 |
+| PROF-07 | POST | `/tech-stacks` | 로그인 | A-11 | 검증 |
+
+- 내 프로필 조회는 별도 API 없이 `AUTH-05`(`GET /auth/me`)를 쓴다. 완성 여부도 `profileCompletion`으로 함께 받는다.
+- 대상 사용자는 언제나 Access Token의 사용자다. 요청 본문에 `userId`·`role`이 있어도 쓰지 않는다.
 
 **PROF-01 공통 프로필 수정**
-- 요청(부분 수정): `{ name?, bio?, profileImageUrl? }` → 응답 200: `{ data: UserMe }`
-- 이메일은 바꿀 수 없다(로그인 식별자, 소셜 연동 기준)
+- 요청(부분 수정): `{ name?, bio?, profileImageUrl?: null }` → 응답 200: `{ data: UserMe }`
+- 이메일·역할은 바꿀 수 없다(로그인 식별자, 소셜 연동 기준). 보내면 400
+- `profileImageUrl`은 `null`(이미지 삭제)만 받는다. 이미지 설정은 `PROF-04`로만 한다(임의 외부 URL 저장 방지)
 
-**PROF-02 의뢰인 프로필 저장** (없으면 생성, 있으면 갱신)
-- 요청: `{ companyName?, businessField?, businessFieldEtc?, websiteUrl? }`
-- 검증: `businessField = ETC`일 때만 `businessFieldEtc` 허용
+**PROF-02 의뢰인 프로필 저장** (없으면 생성, 있으면 전체 교체)
+- 요청: `{ companyName, businessField, businessFieldEtc?, websiteUrl? }` (필수 항목은 D-05)
+- 검증: `businessField = ETC`일 때만 `businessFieldEtc` 허용(그때는 필수)
 - 응답 200: `{ data: UserMe }` (갱신된 `profileCompletion` 포함)
-- 오류: 400, 403 `FORBIDDEN`(프리랜서)
+- 오류: 400, 403 `FORBIDDEN`(프리랜서), 403 `ROLE_REQUIRED`
 
-**PROF-03 프리랜서 프로필 저장**
-- 요청: `{ mainCategory?, techStackIds?: number[], careerYears?, hourlyRate?, portfolioUrl? }`
+**PROF-03 프리랜서 프로필 저장** (없으면 생성, 있으면 전체 교체)
+- 요청: `{ mainCategory, techStackIds: number[], careerYears, hourlyRate, portfolioUrl? }` (필수 항목은 D-05)
+- `techStackIds`는 1~20개, 중복 불가. 기존 연결은 요청 목록으로 통째로 바뀐다
 - 응답 200: `{ data: UserMe }`
-- 오류: 400(존재하지 않는 기술 스택 ID 포함), 403
+- 오류: 400(존재하지 않는 기술 스택 ID·중복 포함), 403 `FORBIDDEN`(의뢰인), 403 `ROLE_REQUIRED`
 
 **PROF-04 프로필 이미지 업로드**
-- 요청: `multipart/form-data`, 필드 `file` (jpg/png/webp, 5MB 이하, D-29 제안값)
-- 응답 201: `{ data: { url } }` → FE가 `PROF-01`로 저장
-- 오류: 400, 413 `FILE_TOO_LARGE`, 415 `UNSUPPORTED_FILE_TYPE`
+- 요청: `multipart/form-data`, 필드 `file` 하나 (jpg/png/webp, 5MB 이하, D-29 제안값)
+- 처리: 파일 앞부분 바이트로 실제 형식 판별 → 디코딩 검증 → 512px 이하 WebP로 다시 인코딩(EXIF 제거) → 무작위 파일 이름으로 저장 → 사용자 이미지로 바로 설정, 이전 파일 삭제(D-76)
+- 응답 201: `{ data: UserMe }` (`profileImageUrl` = `/api/uploads/profile-images/<32자리 hex>.webp`)
+- 오류: 400 `VALIDATION_ERROR`(파일 없음), 400 `INVALID_IMAGE`, 401, 403 `ROLE_REQUIRED`, 409 `CONFLICT`, 413 `FILE_TOO_LARGE`, 415 `UNSUPPORTED_FILE_TYPE`(SVG·실행 파일 등)
+- 이미지 제공: `GET /uploads/profile-images/:fileName` (공개). 저장소가 만든 이름 형식만 열고 그 외는 404. `Content-Type: image/webp`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'`
 
 **PROF-05 공개 프로필**
 - 응답 200: `{ data: PublicUser }` (평균 별점·리뷰 수 포함, 리뷰 목록은 `REV-03`)
@@ -283,6 +292,29 @@
 **PROF-07 커스텀 기술 스택 추가**
 - 요청: `{ "name": "Svelte" }`
 - 응답: 새로 만들면 201, 정규화 이름이 같은 항목이 있으면 200으로 기존 항목 반환 → `{ data: { id, name, isCustom } }`
+
+### 4.1 STEP 04-B-2 구현 내용과 명세 대비 차이 (PROF-01~04, 06, 07, SRCH-03)
+
+구현: `apps/api/src/modules/profiles/`, `uploads/`, `techStacks/`, `apps/api/src/routes/meta.js`, `apps/api/src/middlewares/requireCompleteProfile.js`. 테스트: `apps/api/test/profile.unit.test.js`(단위), `apps/api/test/db/profiles.integration.test.js`(실제 테스트 DB). 스키마 변경(마이그레이션) 없음.
+
+| # | 항목 | 명세 | 구현 | 근거 |
+|---|---|---|---|---|
+| 1 | PROF-02·03 요청 | 모든 항목 선택(`?`) | D-05 필수 항목을 받아야 저장. 없으면 400. 저장은 전체 교체(PUT) | 반쯤 채운 프로필이 "저장됨"으로 보이지 않게 함(D-77) |
+| 2 | 권한 확인 순서 | 미정 | 로그인 → 역할 선택(`ROLE_REQUIRED`) → 역할 일치(`FORBIDDEN`) → 입력 검사 | 다른 역할에는 입력 오류 대신 403을 줌 |
+| 3 | 동시 저장 | 미정 | 사용자 행을 `FOR UPDATE`로 잠그고 트랜잭션 안에서 저장 | 기술 스택 연결이 섞이지 않게 함(D-77) |
+| 4 | PROF-01 `profileImageUrl` | 문자열 | `null`(삭제)만 허용 | 임의 외부 URL 저장 방지(D-76) |
+| 5 | PROF-04 응답 | 201 `{ url }` → FE가 PROF-01로 저장 | 201 `UserMe`. 업로드가 곧바로 사용자 이미지를 바꾸고 이전 파일을 지움 | 저장되지 않은 고아 파일·외부 URL 방지(D-76) |
+| 6 | 이미지 오류 | 400, 413, 415 | 추가로 400 `INVALID_IMAGE`, 409 `CONFLICT` | 손상 파일·동시 교체 구분 |
+| 7 | 이미지 저장소 | Supabase Storage 제안(D-29) | 로컬 디스크(`apps/api/uploads/profile-images`, `UPLOAD_DIR`로 변경). 외부 유료 서비스 연결 안 함 | 사용자 승인 전(D-76) |
+| 8 | 입력 상한 | 미정 | 이름 50자, 자기소개 2,000자, 회사명·기타 사업 분야 100자, URL 500자(http/https만), 경력 0~80년, 기술 스택 20개, 단가 1~bigint 최대 | DB 열 길이·현실 범위(D-77) |
+| 9 | 응답 캐시 | 없음 | `/api/users` 응답에 `Cache-Control: no-store` | 개인정보 캐시 방지 |
+| 10 | 필수 프로필 검사 | `+프로필` 표기만 | `requireCompleteProfile` 미들웨어(403 `PROFILE_INCOMPLETE` + `missingFields`). 프로젝트 등록·지원 API를 만들 때 붙인다. 아직 연결된 라우트 없음 | D-78 |
+| 11 | SRCH-03 | `reviewTags` 포함 | `projectCategories`, `businessFields`만(값·한국어 이름). 리뷰 태그는 리뷰 단계에서 추가 | D-20 미확정 |
+| 12 | PROF-06 검색 | 부분 일치 | 이름(대소문자 무시) 또는 정규화 이름 부분 일치. `limit` 최대 100. 기본 항목 먼저, 이름순 | `Node.js`·`nodejs` 모두 찾기 |
+| 13 | 기본 기술 스택 | 미정 | 27개 기본 항목을 멱등 시드(`npm run db:seed:tech-stacks -w apps/api`) | D-75 |
+
+- 응답의 `UserMe`에는 비밀번호 해시·Refresh Token·Google `sub`가 들어가지 않는다(DB 테스트로 확인).
+- 프로필이 미완성이어도 로그인·재발급·`/auth/me`·프로필 저장은 그대로 된다(A-13, D-56).
 
 ---
 
@@ -328,7 +360,7 @@
 |---|---|---|---|---|---|
 | SRCH-01 | GET | `/projects` | 공개 | A-19~A-23, A-26 | 설계 |
 | SRCH-02 | GET | `/projects/:projectId/recommendations` | 공개 | A-41, D-30 | 설계 |
-| SRCH-03 | GET | `/meta/options` | 공개 | A-10, A-11, B-16, B-17 | 설계 |
+| SRCH-03 | GET | `/meta/options` | 공개 | A-10, A-11, B-16, B-17 | 일부 검증(리뷰 태그 제외, §4.1) |
 
 **SRCH-01 프로젝트 목록**
 - 쿼리

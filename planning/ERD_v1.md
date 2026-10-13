@@ -603,6 +603,17 @@ erDiagram
 | 적용 | `workbridge_dev`, `workbridge_test`에 `prisma migrate deploy` |
 | UNIQUE | `oauth_transactions.token_hash`. 기존 `social_accounts(provider, provider_user_id)`, `(user_id, provider)`는 그대로다 |
 
+### 7.4 STEP 04-B-2 역할별 프로필 (2026-10-13)
+
+| 항목 | 내용 |
+|---|---|
+| 마이그레이션 | **없음.** `users`(`name`, `bio`, `profile_image_url`), `client_profiles`, `freelancer_profiles`, `tech_stacks`, `freelancer_tech_stacks`를 그대로 쓴다 |
+| RFP·DB 충돌 | 없음. 필수 항목(D-05) 컬럼은 nullable로 두고 서비스(`getMissingProfileFields`)가 완성 여부를 판정한다(§0 #4). 설계에 없는 컬럼(의뢰인 연락처 등)은 추가하지 않았다 |
+| 기술 스택 연결 | 저장 시 존재하는 ID인지 확인한 뒤 `freelancer_tech_stacks`를 요청 목록으로 교체. 복합 PK가 중복을 막고, 요청 단계에서도 중복을 400으로 거부 |
+| 시드 데이터 | `tech_stacks` 기본 27행(`is_custom = false`, D-75). `normalized_name` UNIQUE로 멱등. 사용자·프로필 더미 데이터는 넣지 않았다 |
+| 금액 | `freelancer_profiles.hourly_rate` `bigint`. API는 문자열로 주고받아 `9007199254740993123` 같은 큰 값도 그대로 저장·조회됨을 DB 테스트로 확인 |
+| 이미지 | DB에는 공개 경로(`/api/uploads/profile-images/<hex>.webp`)만 저장. 파일은 DB 밖 저장소(D-76) |
+
 ### 7.2 설계와 다른 점과 이유
 
 | # | 설계(§3) | 구현 | 이유 |

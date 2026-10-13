@@ -3,8 +3,10 @@ import { AuthConfigError, loadAuthConfig } from './config/auth.js';
 import { DatabaseConfigError, describeDatabase, getDatabaseConfig } from './config/database.js';
 import { loadConfig } from './config/env.js';
 import { loadGoogleOAuthConfig } from './config/google.js';
+import { loadUploadConfig } from './config/uploads.js';
 import { createPrismaClient } from './db/client.js';
 import { createGoogleOAuthClient } from './modules/auth/googleOAuth.js';
+import { createLocalImageStorage } from './modules/uploads/imageStorage.js';
 
 const config = loadConfig();
 
@@ -33,9 +35,16 @@ if (!googleConfig.enabled) {
   );
 }
 
+if (config.nodeEnv === 'production') {
+  console.warn(
+    '[api] Profile images use local disk storage. Files are lost when the host disk is not persistent (see D-29).',
+  );
+}
+
 const prisma = createPrismaClient({ target: 'development' });
 const googleOAuth = googleConfig.enabled ? createGoogleOAuthClient(googleConfig) : null;
-const app = createApp(config, { prisma, authConfig, googleOAuth });
+const imageStorage = createLocalImageStorage(loadUploadConfig());
+const app = createApp(config, { prisma, authConfig, googleOAuth, imageStorage });
 
 const server = app.listen(config.port, () => {
   console.log(`[api] listening on http://localhost:${config.port} (${config.nodeEnv})`);
