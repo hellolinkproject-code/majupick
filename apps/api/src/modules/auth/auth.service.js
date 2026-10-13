@@ -134,5 +134,19 @@ export function createAuthService({ prisma, authConfig }) {
       if (!user) throw new HttpError(401, 'UNAUTHENTICATED', '로그인이 필요합니다.');
       return toUserMe(user);
     },
+
+    /** AUTH-09. 역할이 없는 계정에 한 번만 설정한다. 이미 있으면 409. */
+    async setRole(userId, role) {
+      const { count } = await prisma.user.updateMany({
+        where: { id: userId, role: null },
+        data: { role },
+      });
+      const user = await prisma.user.findUnique({ where: { id: userId }, include: userMeInclude });
+      if (!user) throw new HttpError(401, 'UNAUTHENTICATED', '로그인이 필요합니다.');
+      if (count !== 1) {
+        throw new HttpError(409, 'ROLE_ALREADY_SET', '역할은 한 번만 선택할 수 있습니다.');
+      }
+      return toUserMe(user);
+    },
   };
 }

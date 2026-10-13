@@ -33,6 +33,13 @@ enum OAuthProvider {
   @@map("oauth_provider")
 }
 
+enum OAuthTransactionKind {
+  LOGIN
+  LINK
+
+  @@map("oauth_transaction_kind")
+}
+
 /// 7개 상태(D-03). 화면의 한국어 이름은 프론트엔드에서 매핑한다.
 enum ProjectStatus {
   SCHEDULED
@@ -93,9 +100,10 @@ model User {
 
   clientProfile     ClientProfile?
   freelancerProfile FreelancerProfile?
-  socialAccounts    SocialAccount[]
-  refreshTokens     RefreshToken[]
-  projects          Project[]
+  socialAccounts     SocialAccount[]
+  refreshTokens      RefreshToken[]
+  oauthTransactions  OAuthTransaction[]
+  projects           Project[]
   createdTechStacks TechStack[]
 
   @@map("users")
@@ -116,6 +124,28 @@ model SocialAccount {
   @@unique([provider, providerUserId])
   @@unique([userId, provider])
   @@map("social_accounts")
+}
+
+/// Google 로그인 진행(LOGIN)과 기존 계정 연결 확인(LINK).
+/// 쿠키 원문 대신 SHA-256 해시만 저장하고, 검증에 성공하면 행을 지운다(일회용).
+model OAuthTransaction {
+  id             Int                  @id @default(autoincrement())
+  kind           OAuthTransactionKind
+  tokenHash      String               @unique @map("token_hash") @db.Char(64)
+  /// PKCE verifier. LOGIN 동안만 서버에 있고 URL·로그에 남기지 않는다.
+  codeVerifier   String?              @map("code_verifier") @db.VarChar(255)
+  nonce          String?              @db.VarChar(255)
+  returnTo       String?              @map("return_to") @db.VarChar(500)
+  providerUserId String?              @map("provider_user_id") @db.VarChar(255)
+  email          String?              @db.VarChar(255)
+  userId         Int?                 @map("user_id")
+  expiresAt      DateTime             @map("expires_at") @db.Timestamptz(3)
+  createdAt      DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([expiresAt])
+  @@map("oauth_transactions")
 }
 
 model RefreshToken {

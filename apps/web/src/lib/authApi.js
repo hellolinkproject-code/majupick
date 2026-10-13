@@ -43,6 +43,32 @@ export async function fetchMe() {
   return res.data.data;
 }
 
+export async function fetchGoogleStatus() {
+  const res = await apiClient.get('/auth/oauth/google/status', AUTH_REQUEST);
+  return res.data.data;
+}
+
+/** Google 로그인 시작 URL. 브라우저가 직접 이동해야 쿠키와 302가 동작한다. */
+export function googleLoginHref(returnTo) {
+  const base = import.meta.env.VITE_API_BASE_URL || '/api';
+  const params = new URLSearchParams();
+  if (returnTo && returnTo !== '/') params.set('returnTo', returnTo);
+  const query = params.toString();
+  return query ? `${base}/auth/oauth/google?${query}` : `${base}/auth/oauth/google`;
+}
+
+export async function linkGoogleAccount(password) {
+  const res = await apiClient.post('/auth/oauth/link', { password }, AUTH_REQUEST);
+  useSessionStore.getState().setSession(res.data.data);
+  return res.data.data.user;
+}
+
+export async function selectRole(role) {
+  const res = await apiClient.patch('/auth/role', { role });
+  useSessionStore.getState().setUser(res.data.data);
+  return res.data.data;
+}
+
 /** API 오류 응답을 화면에서 쓰기 쉬운 형태로 바꾼다. */
 export function parseApiError(error) {
   const body = error?.response?.data?.error;

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
 import { FormField } from '../components/FormField.jsx';
+import { GoogleAuthSection } from '../components/GoogleAuthSection.jsx';
 import { parseApiError, signup } from '../lib/authApi.js';
 import { safeReturnTo } from '../lib/returnTo.js';
 import { useSessionStore } from '../stores/useSessionStore.js';
@@ -166,6 +167,7 @@ export function SignupPage() {
           {mutation.isPending ? '가입하는 중…' : '회원가입'}
         </button>
       </form>
+      <GoogleAuthSection returnTo={returnTo} />
       <p className="auth-card__footer">
         이미 계정이 있나요? <Link to={loginHref}>로그인</Link>
       </p>

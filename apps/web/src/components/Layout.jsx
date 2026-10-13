@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Link, Outlet, useNavigate } from 'react-router';
+import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { logout, restoreSession } from '../lib/authApi.js';
+import { safeReturnTo } from '../lib/returnTo.js';
 import { useSessionStore } from '../stores/useSessionStore.js';
+
+// 역할 선택 전에는 인증 화면만 열고, 그 외에는 역할 선택으로 보낸다.
+const ROLE_EXEMPT = new Set(['/select-role', '/oauth/complete', '/oauth/link']);
 
 // 역할별 메뉴(프로젝트 등록, 내 지원 현황 등)는 해당 화면을 만드는 단계에서 추가한다.
 function AuthNav() {
@@ -56,7 +60,21 @@ function AuthNav() {
   );
 }
 
+function roleSelectionPath(location) {
+  const current = `${location.pathname}${location.search}${location.hash}`;
+  const returnTo = safeReturnTo(current, '');
+  return returnTo && returnTo !== '/'
+    ? `/select-role?returnTo=${encodeURIComponent(returnTo)}`
+    : '/select-role';
+}
+
 export function Layout() {
+  const location = useLocation();
+  const status = useSessionStore((state) => state.status);
+  const user = useSessionStore((state) => state.user);
+  const needsRole =
+    status === 'authenticated' && user && !user.role && !ROLE_EXEMPT.has(location.pathname);
+
   useEffect(() => {
     restoreSession();
   }, []);
@@ -71,7 +89,7 @@ export function Layout() {
         <AuthNav />
       </header>
       <main className="layout__main">
-        <Outlet />
+        {needsRole ? <Navigate to={roleSelectionPath(location)} replace /> : <Outlet />}
       </main>
       <footer className="layout__footer">© WorkBridge</footer>
     </div>

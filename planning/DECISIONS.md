@@ -154,6 +154,18 @@ RFP는 이중 토큰 구조와 서버 측 무효화(선택)만 정한다(3.1.1).
 | D-68 | 로그인 호출 제한과 비밀키 관리 | 429 `RATE_LIMITED` 설계만 있음 | 로그인 **실패** 10회/15분/IP(`LOGIN_RATE_LIMIT_MAX`, 성공은 세지 않음), 메모리 저장소(서버 1대 기준. 여러 대로 늘리면 공유 저장소 필요). `JWT_ACCESS_SECRET`은 운영에서 필수(32자 이상, 없으면 서버가 시작하지 않음). 개발에서 비어 있으면 실행마다 임시 비밀키를 만들고 경고를 남긴다(재시작하면 Access Token만 무효, Refresh Token으로 자동 재발급) | 개발에도 필수(처음 실행이 어려워짐), 코드에 기본 비밀키(유출 위험) | STEP 04-A | 제안 (구현) |
 | D-69 | 프론트엔드 세션 처리 | 미정 | Access Token은 Zustand 메모리에만 둔다(D-25). 새로고침하면 `AUTH-03`으로 복원. 401(`TOKEN_EXPIRED`·`UNAUTHENTICATED`)을 받으면 **재발급은 한 번만**(동시에 실패한 요청은 같은 재발급 결과를 기다림), 성공하면 원래 요청을 1회 재시도, 실패하면 로그인 상태를 지운다. 여러 탭이 같은 쿠키로 동시에 재발급하면 D-65 재사용 감지에 걸리므로 Web Locks API로 탭 간 재발급을 순서대로 실행. 로그인 후 복귀 경로 `returnTo`는 `/`로 시작하는 내부 경로만 허용 | localStorage 보관(XSS 노출), 탭 간 처리 없음(여러 탭 사용 시 로그아웃될 수 있음) | STEP 04-A | 제안 (구현) |
 
+### 2.10 STEP 04-B에서 추가된 항목
+
+Google 로그인은 D-23·D-24를 구현하면서, RFP가 정하지 않은 프로토콜 세부(PKCE, nonce, 토큰 보관)를 아래처럼 고정했다. 팀 확인 전이므로 `제안`이다.
+
+| ID | 주제 | RFP | 추천안 / 결정 | 대안 | 확정 시점 | 상태 |
+|---|---|---|---|---|---|---|
+| D-70 | Google OAuth 프로토콜 | OAuth 2.0(3.1.2) | **Authorization Code를 서버에서 교환.** PKCE(S256), `state`, OIDC `nonce`, 권한 `openid email profile`. ID Token은 `google-auth-library`로 서명·`iss`·`aud`·`exp`를 검사하고, `email_verified === true`와 `nonce` 일치를 확인한다. 식별자는 `sub`. Google Access Token·ID Token·Client Secret은 URL·브라우저 저장소·로그에 넣지 않고, WorkBridge Refresh Token으로 쓰지 않는다 | 암시적 흐름(토큰이 브라우저에 노출), 프로토콜 직접 구현 | STEP 04-B | 제안 (구현) |
+| D-71 | OAuth 상태 저장 | 미정 | `oauth_transactions`에 `state`의 SHA-256, PKCE verifier, nonce를 10분 저장하고 콜백에서 행을 지운다(일회용). 쿠키 `wb_oauth`에는 state 원문만 둔다(`HttpOnly`, `Path=/api/auth/oauth`). 만료 행은 새 로그인 때 지운다. 인가 코드는 state가 소비된 뒤에는 다시 쓸 수 없다 | 쿠키에 verifier까지 저장(매 요청에 비밀이 실림), 만료 없이 메모리만 사용(재시작·다중 프로세스에서 유실) | STEP 04-B | 제안 (구현) |
+| D-72 | 계정 연결 거부 | 같은 이메일 연동(3.1.2), D-24 | 이메일이 같아도 자동 연결하지 않는다. 기존 계정에 비밀번호가 있을 때만 `wb_link`(10분)로 소유를 확인한다. 비밀번호가 없거나 다른 Google `sub`가 이미 연결되어 있으면 409 `OAUTH_LINK_UNAVAILABLE`로 거부한다. 사용자·소셜 행 생성과 연결은 트랜잭션과 `social_accounts` UNIQUE로 한 건만 성공한다 | 검증된 이메일이면 즉시 연결(D-24에서 이미 버림), 소셜 전용 계정끼리 이메일만으로 합치기 | STEP 04-B | 제안 (구현) |
+| D-73 | 역할 미선택 권한 | 최초 소셜 로그인 시 역할 선택(3.1.2) | 역할 NULL이어도 로그인(AUTH-04·05·09)은 가능하다. 그 외 보호 API는 403 `ROLE_REQUIRED`. 화면은 `/select-role`만 열고, 선택 후 `returnTo`가 있으면 그 경로, 없으면 `/me`. 한 번 정한 역할은 `AUTH-09`가 409로 거절해 프로필 수정으로 바꾸지 못한다 | 역할 전 전면 403(내 정보 조회까지 막힘), 역할 변경 허용 | STEP 04-B | 제안 (구현) |
+| D-74 | OAuth 리다이렉트와 미설정 | 미정 | 콜백 이후 이동은 `CORS_ORIGIN`의 첫 출처뿐. `returnTo`는 내부 경로만. Redirect URI는 그 출처의 `/api/auth/oauth/google/callback`(로컬은 Vite 프록시 `http://localhost:5173/...`)과 같아야 한다. 세 환경 변수가 없으면 시작 API는 503이고 화면은 설정 안내를 보여 준다. 일부만 있으면 서버가 시작하지 않는다 | 상대 경로 302(API 포트로 떨어질 수 있음), 설정 없이도 Google 버튼 노출 | STEP 04-B | 제안 (구현) |
+
 ---
 
 ## 3. 확정 기록 양식
@@ -214,3 +226,12 @@ RFP는 이중 토큰 구조와 서버 측 무효화(선택)만 정한다(3.1.1).
 | 3 | API_SPEC_v1 §1.1 | 쿠키 항상 `Secure` | 운영에서만 `Secure`(로컬 HTTPS는 `COOKIE_SECURE=true`) | 로컬 개발 서버는 `http://localhost`라 `Secure` 쿠키를 쓸 수 없다(D-66) |
 | 4 | 환경 변수 | `JWT_REFRESH_SECRET` 주석 예시 | 제거. `JWT_ACCESS_SECRET`, `ACCESS_TOKEN_TTL_SECONDS`, `REFRESH_TOKEN_TTL_DAYS`, `BCRYPT_ROUNDS`, `COOKIE_SECURE`, `LOGIN_RATE_LIMIT_MAX` 추가 | Refresh Token은 서명하지 않는 무작위 값(D-64) |
 | 5 | D-02 | 확인 필요 | **변동 없음.** 인증 라이브러리 `jsonwebtoken`, `bcryptjs`, `cookie-parser`, `express-rate-limit` 추가 | 고정 기술 스택 목록 여전히 미공지 |
+
+### 4.5 STEP 04-B (2026-10-13)
+
+| # | 대상 | 이전 | 변경 | 근거 |
+|---|---|---|---|---|
+| 1 | API_SPEC_v1 AUTH-06~09 | 설계 | Mock Google + 실제 PostgreSQL로 검증. 명세와 다른 점은 API_SPEC_v1 §3.2 | STEP 04-B. 실제 Google 신규 가입·재로그인 브라우저 확인, 기존 이메일 계정 연결은 미검증 |
+| 2 | ERD | `social_accounts`만 | `oauth_transactions` 추가(로그인 state·연동 확인, 10분, 일회용) | D-71. 사용자 데이터는 지우지 않는 추가 마이그레이션 |
+| 3 | D-24 | 비밀번호 확인 후 연동 | 비밀번호가 없거나 다른 Google 계정이 이미 있으면 연결 거부(`OAUTH_LINK_UNAVAILABLE`) | D-72 |
+| 4 | D-02 | 확인 필요 | **변동 없음.** `google-auth-library` 추가 | 고정 기술 스택 목록 여전히 미공지 |

@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
 import { FormField } from '../components/FormField.jsx';
+import { GoogleAuthSection } from '../components/GoogleAuthSection.jsx';
 import { login, parseApiError } from '../lib/authApi.js';
+import { oauthErrorMessage } from '../lib/oauthErrors.js';
 import { safeReturnTo } from '../lib/returnTo.js';
 import { useSessionStore } from '../stores/useSessionStore.js';
 
@@ -16,6 +18,7 @@ function validate({ email, password }) {
 export function LoginPage() {
   const [searchParams] = useSearchParams();
   const returnTo = safeReturnTo(searchParams.get('returnTo'));
+  const oauthError = oauthErrorMessage(searchParams.get('error'));
   const status = useSessionStore((state) => state.status);
   const [form, setForm] = useState({ email: '', password: '' });
   const [errors, setErrors] = useState({});
@@ -56,9 +59,9 @@ export function LoginPage() {
     <section className="auth-card">
       <h1>로그인</h1>
       <form onSubmit={handleSubmit} noValidate>
-        {formError && (
+        {(oauthError || formError) && (
           <p className="form-alert" role="alert">
-            {formError}
+            {formError || oauthError}
           </p>
         )}
         <FormField
@@ -83,6 +86,7 @@ export function LoginPage() {
           {mutation.isPending ? '로그인 중…' : '로그인'}
         </button>
       </form>
+      <GoogleAuthSection returnTo={returnTo} />
       <p className="auth-card__footer">
         아직 계정이 없나요? <Link to={signupHref}>회원가입</Link>
       </p>

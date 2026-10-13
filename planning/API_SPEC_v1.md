@@ -1,6 +1,6 @@
 # WorkBridge REST API 명세 v1
 
-> 상태: STEP 04-A에서 **AUTH-01~05 검증**(실제 PostgreSQL 테스트 통과). 나머지 행은 표에 적힌 상태 그대로다. 구현하면 해당 행의 상태를 `구현`, 테스트까지 통과하면 `검증`으로 바꾼다.
+> 상태: STEP 04-A에서 **AUTH-01~05 검증**, STEP 04-B에서 **AUTH-06~09 검증**(Google API는 Mock, 실제 PostgreSQL 테스트 통과). 실제 Google 계정으로 신규 가입·역할 선택·세션 유지·로그아웃·재로그인을 브라우저에서 확인했다(2026-10-13). 기존 이메일 계정 연결(AUTH-08)의 실제 브라우저 흐름은 미검증이다. 나머지 행은 표에 적힌 상태 그대로다.
 > 근거: [REQUIREMENTS.md](./REQUIREMENTS.md), [ERD_v1.md](./ERD_v1.md), [DECISIONS.md](./DECISIONS.md)
 > 제출용 API 명세(O-05)는 구현 단계에서 이 문서를 Swagger(OpenAPI) 또는 Postman으로 옮겨 만든다.
 
@@ -49,7 +49,7 @@
 | 표기 | 뜻 |
 |---|---|
 | 공개 | 로그인 없이 호출 가능 |
-| 로그인 | 유효한 Access Token 필요 (역할 미선택 사용자는 `AUTH-09`, `AUTH-05`, `AUTH-04`만 가능) |
+| 로그인 | 유효한 Access Token 필요 (역할 미선택 사용자는 `AUTH-09`, `AUTH-05`, `AUTH-04`만 가능. 그 외 보호 API는 403 `ROLE_REQUIRED`) |
 | CLIENT / FREELANCER | 해당 역할만 |
 | 소유자 | 리소스를 만든 사용자만 |
 | 당사자 | 계약의 의뢰인 또는 프리랜서 |
@@ -72,6 +72,8 @@
 | 403 | `ROLE_REQUIRED` | 역할 미선택 사용자 |
 | 403 | `PROFILE_INCOMPLETE` | 필수 프로필 미완성. `details.missingFields` 포함 |
 | 403 | `OAUTH_EMAIL_UNVERIFIED` | 제공자가 이메일 인증을 확인하지 않음 |
+| 409 | `OAUTH_LINK_UNAVAILABLE` | 비밀번호가 없거나 다른 Google 계정이 이미 연결되어 소유를 확인할 수 없음 (STEP 04-B) |
+| 503 | `OAUTH_NOT_CONFIGURED` | Google OAuth 환경 변수가 없음 (STEP 04-B) |
 | 404 | `NOT_FOUND` | 리소스 없음(또는 숨김) |
 | 409 | `EMAIL_ALREADY_EXISTS` | 가입된 이메일 |
 | 409 | `ROLE_ALREADY_SET` | 이미 역할 선택 완료 |
@@ -139,10 +141,10 @@
 | AUTH-03 | POST | `/auth/refresh` | 쿠키 `wb_rt` | A-03 | 검증 |
 | AUTH-04 | POST | `/auth/logout` | 쿠키 `wb_rt` | A-04, D-26 | 검증 |
 | AUTH-05 | GET | `/auth/me` | 로그인 | A-08, A-13 | 검증 |
-| AUTH-06 | GET | `/auth/oauth/google` | 공개 | A-05 | 설계 |
-| AUTH-07 | GET | `/auth/oauth/google/callback` | 공개(Google 리다이렉트) | A-05, A-06, A-07 | 설계 |
-| AUTH-08 | POST | `/auth/oauth/link` | 연동 확인 쿠키 `wb_link` | A-06, D-24 | 설계 |
-| AUTH-09 | PATCH | `/auth/role` | 로그인(역할 미선택) | A-07 | 설계 |
+| AUTH-06 | GET | `/auth/oauth/google` | 공개 | A-05 | 검증 |
+| AUTH-07 | GET | `/auth/oauth/google/callback` | 공개(Google 리다이렉트) | A-05, A-06, A-07 | 검증 |
+| AUTH-08 | POST | `/auth/oauth/link` | 연동 확인 쿠키 `wb_link` | A-06, D-24 | 검증 |
+| AUTH-09 | PATCH | `/auth/role` | 로그인(역할 미선택) | A-07 | 검증 |
 
 **AUTH-01 회원가입**
 - 요청: `{ "name": "홍길동", "email": "a@b.com", "password": "********", "role": "CLIENT" }`
@@ -168,25 +170,33 @@
 - 오류: 401
 
 **AUTH-06 Google 로그인 시작**
-- 응답 302 → Google 인증 페이지. CSRF 방지용 `state`를 httpOnly 쿠키에 저장
-- 쿼리 `returnTo`(선택): 로그인 후 돌아갈 FE 경로(내부 경로만 허용)
+- `GET /auth/oauth/google/status` → 200 `{ data: { enabled } }`. Client Secret·토큰은 포함하지 않는다. 설정이 없으면 FE는 버튼 대신 환경 변수 안내를 보여 준다
+- `GET /auth/oauth/google` 응답 302 → Google 인증 페이지. 권한은 `openid email profile`만 요청한다
+- CSRF용 `state`, PKCE `code_verifier`, OIDC `nonce`를 서버에 10분 저장한다. 쿠키 `wb_oauth`(httpOnly, `Path=/api/auth/oauth`)에는 `state` 원문만 두고, DB에는 SHA-256 해시와 verifier·nonce를 둔다. 콜백에서 한 번 쓰면 행을 지운다
+- 쿼리 `returnTo`(선택): 로그인 후 돌아갈 FE 경로. 외부 URL·`//`·로그인 화면 자신은 무시한다
+- 설정이 없으면 503 `OAUTH_NOT_CONFIGURED` (Google로 리다이렉트하지 않음)
 
 **AUTH-07 Google 콜백**
-- 처리: `state` 검증 → 인가 코드 교환 → ID 토큰 검증 → `email_verified = true` 확인
-  - 연동된 소셜 계정 있음 → 로그인, 302 `/oauth/complete`
-  - 같은 이메일 사용자 없음 → 사용자 생성(역할 NULL) + 소셜 계정 연결 → 302 `/select-role`
-  - **같은 이메일 사용자 있음, 미연동** → 10분짜리 연동 확인 토큰을 httpOnly 쿠키 `wb_link`에 저장 → 302 `/oauth/link`(마스킹된 이메일 표시)
-- Access Token은 URL에 넣지 않는다. FE는 `/oauth/complete` 화면에서 `AUTH-03`으로 토큰을 받는다
-- 오류(302 `/login?error=`): `OAUTH_EMAIL_UNVERIFIED`, `OAUTH_FAILED`
+- 브라우저 최상위 이동(GET)이라 `trustedOrigin`의 POST 출처 검사를 타지 않는다. `SameSite=Lax` 쿠키는 이 이동에 실린다
+- 처리: 쿠키 `state`와 쿼리 `state` 비교 → 저장된 요청을 일회 소비 → 서버에서 인가 코드 교환(PKCE) → ID Token 서명·`iss`·`aud`·`exp`·`nonce` 검증 → `email_verified = true` 확인. 사용자 식별은 Google `sub`
+  - 연동된 소셜 계정 있음 → WorkBridge 세션 발급, 302 `{프론트}/oauth/complete`
+  - 같은 이메일 사용자 없음 → 사용자 생성(역할 NULL) + 소셜 계정 연결 → 302 `{프론트}/select-role`
+  - **같은 이메일 사용자 있음, 미연동, 비밀번호 있음** → 10분짜리 연동 확인 토큰을 httpOnly 쿠키 `wb_link`에 저장 → 302 `{프론트}/oauth/link`(마스킹된 이메일). 이메일만 같다고 자동 연결하지 않는다
+  - 비밀번호가 없거나 다른 Google 계정이 이미 연결됨 → 302 `{프론트}/login?error=OAUTH_LINK_UNAVAILABLE`
+- 세션은 기존 Refresh Token 쿠키 `wb_rt`로만 만든다. Google Access Token·ID Token은 URL·쿠키·응답·로그에 넣지 않는다. FE는 `/oauth/complete`에서 `AUTH-03`으로 Access Token을 받는다
+- 역할이 없으면 역할 선택을 마친 뒤에만 `returnTo`로 간다. 역할이 있으면 `/oauth/complete` 다음 `returnTo`(없으면 홈)
+- 오류(302 `{프론트}/login?error=`): `OAUTH_EMAIL_UNVERIFIED`, `OAUTH_FAILED`, `OAUTH_CANCELLED`(사용자가 취소), `OAUTH_EXPIRED`(저장된 요청 만료)
 
 **AUTH-08 기존 계정 연동 확인** (계정 소유 확인)
 - 요청: `{ "password": "********" }` (기존 이메일 계정의 비밀번호)
-- 처리: `wb_link` 검증 → 비밀번호 확인 → 소셜 계정 연결 → 로그인. 이후에는 Google로 바로 로그인된다
+- 처리: `wb_link` 검증 → 비밀번호 확인 → 소셜 계정 연결 → 로그인. 이후에는 Google로 바로 로그인된다. 잘못된 비밀번호는 토큰을 지우지 않아 10분 안에 다시 시도할 수 있다
 - 응답 200: `{ data: { accessToken, user } }` + `wb_rt`, `wb_link` 삭제
-- 오류: 401 `OAUTH_LINK_EXPIRED`, 401 `INVALID_CREDENTIALS`, 429 `RATE_LIMITED`
+- 오류: 401 `OAUTH_LINK_EXPIRED`, 401 `INVALID_CREDENTIALS`, 409 `OAUTH_LINK_UNAVAILABLE`, 429 `RATE_LIMITED`(로그인 실패와 같은 제한)
 
 **AUTH-09 역할 선택** (소셜 최초 가입)
 - 요청: `{ "role": "FREELANCER" }` → 응답 200: `{ data: UserMe }`
+- 이미 역할이 있으면 409 `ROLE_ALREADY_SET`. 프로필 수정 API로 역할을 바꾸지 않는다
+- 역할이 없는 사용자는 로그인 상태이지만, 역할이 필요한 API는 403 `ROLE_REQUIRED`. 화면은 `/select-role`로 보낸 뒤, 선택이 끝나면 `returnTo`가 있으면 그 경로로, 없으면 내 프로필(`/me`)로 간다
 - 오류: 400, 409 `ROLE_ALREADY_SET`
 
 ### 3.1 STEP 04-A 구현 내용과 명세 대비 차이 (AUTH-01~05)
@@ -209,6 +219,24 @@
 - 오류 응답 예: 400 `{ "error": { "code": "VALIDATION_ERROR", "message": "입력값을 확인해 주세요.", "details": { "fields": { "email": "올바른 이메일 형식이 아닙니다." } } } }`
 - `TOKEN_EXPIRED`(만료)와 `UNAUTHENTICATED`(없음·위조·형식 오류)를 구분한다. FE는 두 경우 모두 `AUTH-03`을 한 번 시도한다(D-69).
 - `user`(`UserMe`)에는 비밀번호 해시가 들어가지 않고, 비밀번호 유무만 `hasPassword`로 준다. `hourlyRate`는 문자열(D-51).
+
+### 3.2 STEP 04-B 구현 내용과 명세 대비 차이 (AUTH-06~09)
+
+구현: `apps/api/src/modules/auth/googleOAuth.js`, `oauth.service.js`, `apps/api/src/middlewares/requireRole.js`. Google 프로토콜(인가 코드 교환, PKCE, ID Token 서명·`iss`·`aud`·`exp`)은 `google-auth-library`를 쓴다. 테스트의 Google 호출은 Mock이다.
+
+| # | 항목 | 명세 | 구현 | 근거 |
+|---|---|---|---|---|
+| 1 | `state` 저장 | httpOnly 쿠키만 | 쿠키 `wb_oauth` + DB `oauth_transactions`(해시, PKCE verifier, nonce, 10분, 사용 후 삭제) | 일회용·PKCE·nonce를 서버만 갖게 함(D-71) |
+| 2 | 로그인 가능 여부 | 시작 URL만 | `GET /auth/oauth/google/status`가 `{ enabled }`만 반환 | 설정이 없을 때 깨진 버튼 대신 안내(D-74) |
+| 3 | 콜백 오류 | `OAUTH_EMAIL_UNVERIFIED`, `OAUTH_FAILED` | 추가로 `OAUTH_CANCELLED`, `OAUTH_EXPIRED`, `OAUTH_LINK_UNAVAILABLE` | 취소·만료·소유 확인 불가를 구분 |
+| 4 | 소유 확인 불가 | 401만 열거 | 409 `OAUTH_LINK_UNAVAILABLE`. 비밀번호가 없거나 다른 Google 계정이 이미 연결된 경우 연결하지 않음 | D-72 |
+| 5 | 잘못된 비밀번호 | 토큰 처리 미정 | 연동 토큰을 유지하고 401. 만료·연결 불가일 때만 쿠키를 지움 | 10분 안에 다시 입력 |
+| 6 | 리다이렉트 대상 | 상대 경로 | `CORS_ORIGIN`의 첫 출처(로컬은 Redirect URI와 같은 `http://localhost:5173`)로만 이동 | 외부 URL 차단(D-74) |
+| 7 | 역할 없는 사용자 | AUTH-09·05·04만 허용 | `requireRole`이 그 외 보호 API에 403 `ROLE_REQUIRED`. 화면은 `/select-role` | A-07 |
+| 8 | 역할 선택 후 이동 | 명세는 응답만 | `returnTo`가 있으면 그 내부 경로, 없으면 `/me` | 신규 가입은 프로필, 깊은 링크는 원래 목적지 |
+| 9 | Google 토큰 | 미정 | WorkBridge Access/Refresh와 분리. Google 토큰은 교환 직후 폐기 | D-70 |
+
+- 실제 Google Cloud 자격 증명이 없으면 상태 API는 `enabled: false`이고, 로그인 시작은 503이다. Mock 테스트 통과를 실제 Google 로그인 성공으로 보지 않는다.
 
 ---
 

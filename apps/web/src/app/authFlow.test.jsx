@@ -21,6 +21,7 @@ let router;
 function renderApp(path, handlers) {
   api = installMockApi({
     'GET /health': () => ({ data: { data: { status: 'ok' } } }),
+    'GET /auth/oauth/google/status': () => ({ data: { data: { enabled: false } } }),
     ...handlers,
   });
   router = createMemoryRouter(routes, { initialEntries: [path] });
@@ -231,6 +232,96 @@ describe('protected pages', () => {
 
   it('keeps the user on the protected page after a reload when the refresh cookie is valid', async () => {
     renderApp('/me', {
+      'POST /auth/refresh': () => sessionResponse(client),
+      'GET /auth/me': () => ({ data: { data: client } }),
+    });
+
+    expect(await screen.findByRole('heading', { name: '내 프로필' })).toBeTruthy();
+    expect(router.state.location.pathname).toBe('/me');
+  });
+});
+
+const newGoogleUser = { ...client, role: null, name: '구글유저', email: 'new@workbridge.test' };
+
+describe('Google login UI', () => {
+  it('explains how to configure Google instead of showing a broken button', async () => {
+    renderApp('/login', anonymous);
+
+    expect(await screen.findByText(/GOOGLE_CLIENT_ID/)).toBeTruthy();
+    expect(screen.queryByRole('link', { name: 'Google로 계속하기' })).toBeNull();
+  });
+
+  it('starts Google login with the validated return path and ignores a second click', async () => {
+    renderApp('/login?returnTo=%2Fme', {
+      ...anonymous,
+      'GET /auth/oauth/google/status': () => ({ data: { data: { enabled: true } } }),
+    });
+
+    const link = await screen.findByRole('link', { name: 'Google로 계속하기' });
+    expect(link.getAttribute('href')).toBe('/api/auth/oauth/google?returnTo=%2Fme');
+    fireEvent.click(link);
+    expect(link.getAttribute('aria-disabled')).toBe('true');
+    expect(link.textContent).toBe('Google로 이동 중…');
+  });
+
+  it('shows a fixed message when Google login is cancelled', async () => {
+    renderApp('/login?error=OAUTH_CANCELLED', anonymous);
+
+    expect((await screen.findByRole('alert')).textContent).toBe('Google 로그인을 취소했습니다.');
+    expect(screen.queryByText('OAUTH_CANCELLED')).toBeNull();
+  });
+
+  it('sends a new Google user to role selection before any other page', async () => {
+    renderApp('/', {
+      'POST /auth/refresh': () => sessionResponse(newGoogleUser),
+    });
+
+    expect(await screen.findByRole('heading', { name: '역할 선택' })).toBeTruthy();
+    expect(router.state.location.pathname).toBe('/select-role');
+  });
+
+  it('saves the role once and opens the profile', async () => {
+    const freelancer = { ...newGoogleUser, role: 'FREELANCER' };
+    renderApp('/select-role?returnTo=%2Fme', {
+      'POST /auth/refresh': () => sessionResponse(newGoogleUser),
+      'PATCH /auth/role': ({ body }) => ({ data: { data: { ...freelancer, role: body.role } } }),
+      'GET /auth/me': () => ({ data: { data: freelancer } }),
+    });
+
+    await screen.findByRole('heading', { name: '역할 선택' });
+    fireEvent.click(screen.getByRole('radio', { name: /^프리랜서/ }));
+    fireEvent.click(screen.getByRole('button', { name: '선택 완료' }));
+
+    expect(await screen.findByRole('heading', { name: '내 프로필' })).toBeTruthy();
+    expect(router.state.location.pathname).toBe('/me');
+    expect(api.calls.find((call) => call.key === 'PATCH /auth/role').body).toEqual({
+      role: 'FREELANCER',
+    });
+  });
+
+  it('links an existing account only after the password is confirmed', async () => {
+    renderApp('/oauth/link?email=a***%40workbridge.test&returnTo=%2Fme', {
+      ...anonymous,
+      'POST /auth/oauth/link': ({ body }) =>
+        body.password === 'abcd1234'
+          ? sessionResponse(client)
+          : apiError(401, 'INVALID_CREDENTIALS', '이메일 또는 비밀번호가 올바르지 않습니다.'),
+      'GET /auth/me': () => ({ data: { data: client } }),
+    });
+
+    await screen.findByRole('heading', { name: '계정 연결 확인' });
+    expect(screen.getByText(/a\*\*\*@workbridge\.test/)).toBeTruthy();
+    type('기존 비밀번호', 'wrong-password');
+    fireEvent.click(screen.getByRole('button', { name: 'Google 계정 연결' }));
+    expect((await screen.findByRole('alert')).textContent).toBe('비밀번호가 올바르지 않습니다.');
+
+    type('기존 비밀번호', 'abcd1234');
+    fireEvent.click(screen.getByRole('button', { name: 'Google 계정 연결' }));
+    expect(await screen.findByRole('heading', { name: '내 프로필' })).toBeTruthy();
+  });
+
+  it('finishes an existing Google login on the completion page', async () => {
+    renderApp('/oauth/complete?returnTo=%2Fme', {
       'POST /auth/refresh': () => sessionResponse(client),
       'GET /auth/me': () => ({ data: { data: client } }),
     });

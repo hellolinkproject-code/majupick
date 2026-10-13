@@ -2,7 +2,7 @@
 
 의뢰인과 프리랜서를 연결하는 프로젝트 중개 플랫폼 (코드잇 풀스택 JavaScript 과제).
 
-> 현재 단계: **이메일 회원가입·로그인(STEP 04-A)**. 화면은 홈·로그인·회원가입·내 프로필(로그인 필요)·404, API는 `GET /api/health`와 인증 5개(`/api/auth/*`)가 있다. 로컬 PostgreSQL에 사용자·프로필·기술 스택·프로젝트 테이블 9개가 있다.
+> 현재 단계: **Google 로그인·역할 선택(STEP 04-B)**. 이메일 회원가입·로그인(STEP 04-A)도 그대로 동작한다. 화면은 홈·로그인·회원가입·Google 완료·계정 연결·역할 선택·내 프로필·404. 로컬 PostgreSQL에 사용자·프로필·기술 스택·프로젝트·OAuth 상태 테이블이 있다.
 > 기획·설계 문서는 [`planning/`](./planning)에 있다.
 
 ## 기술 스택
@@ -119,17 +119,48 @@ npm run db:migrate:status -w apps/api   # 개발 DB 적용 상태 확인
 - DB 테스트는 `workbridge_test`에만 연결한다. 테스트 실행 중에는 개발 DB 연결을 코드가 거부한다.
 - DB 테스트는 실행할 때마다 표시를 붙인 테스트용 행만 만들고, 끝나면 그 행만 지운다.
 
-## 인증 (이메일 회원가입·로그인)
+## 인증 (이메일·Google)
 
-| API                      | 설명                                                                     |
-| ------------------------ | ------------------------------------------------------------------------ |
-| `POST /api/auth/signup`  | 회원가입(이름·이메일·비밀번호·역할 `CLIENT`/`FREELANCER`) 후 바로 로그인 |
-| `POST /api/auth/login`   | 로그인                                                                   |
-| `POST /api/auth/refresh` | Refresh Token 쿠키로 Access Token 재발급(새로고침 시 세션 복원)          |
-| `POST /api/auth/logout`  | 현재 기기의 Refresh Token 무효화                                         |
-| `GET /api/auth/me`       | 내 정보(`Authorization: Bearer <accessToken>`)                           |
+| API                                   | 설명                                                                     |
+| ------------------------------------- | ------------------------------------------------------------------------ |
+| `POST /api/auth/signup`               | 회원가입(이름·이메일·비밀번호·역할 `CLIENT`/`FREELANCER`) 후 바로 로그인 |
+| `POST /api/auth/login`                | 이메일 로그인                                                            |
+| `POST /api/auth/refresh`              | Refresh Token 쿠키로 Access Token 재발급(새로고침 시 세션 복원)          |
+| `POST /api/auth/logout`               | 현재 기기의 Refresh Token 무효화                                         |
+| `GET /api/auth/me`                    | 내 정보(`Authorization: Bearer <accessToken>`)                           |
+| `GET /api/auth/oauth/google/status`   | Google 로그인 사용 가능 여부만 반환(비밀 없음)                           |
+| `GET /api/auth/oauth/google`          | Google 로그인 시작(302)                                                  |
+| `GET /api/auth/oauth/google/callback` | Google이 돌려보내는 인가 코드 처리                                       |
+| `POST /api/auth/oauth/link`           | 기존 이메일 계정에 Google 연결(비밀번호 확인)                            |
+| `PATCH /api/auth/role`                | 최초 Google 가입 후 역할 선택(`CLIENT` / `FREELANCER`)                   |
 
-- Access Token(15분)은 응답 본문으로 받아 브라우저 메모리에만 둔다. Refresh Token(14일)은 `HttpOnly` 쿠키 `wb_rt`로만 오가며, DB에는 해시만 저장된다.
-- 화면: `/signup`, `/login`, `/me`(로그인 필요. 로그인하지 않았으면 `/login?returnTo=/me`로 이동하고, 로그인 후 원래 화면으로 돌아온다).
-- 환경 변수는 `.env.example`의 '인증' 항목을 본다. `JWT_ACCESS_SECRET`을 비워 두면 개발 서버가 실행마다 임시 키를 만든다(경고 출력). **운영에서는 32자 이상의 키가 없으면 서버가 시작하지 않는다.**
-- 상세 명세와 정책 근거: `planning/API_SPEC_v1.md` §3·§3.1, `planning/DECISIONS.md` D-64~D-69.
+- Access Token(15분)은 응답 본문으로 받아 브라우저 메모리에만 둔다. Refresh Token(14일)은 `HttpOnly` 쿠키 `wb_rt`로만 오가며, DB에는 해시만 저장된다. Google 로그인 뒤에도 같은 토큰을 쓴다. Google 토큰을 Refresh Token 대신 쓰지 않는다.
+- 화면: `/signup`, `/login`, `/oauth/complete`, `/oauth/link`, `/select-role`, `/me`.
+- 처음 Google로 가입하면 역할을 고른 뒤 내 프로필로 간다. 상세 프로필은 이 단계에서 요구하지 않는다. 이미 역할이 있으면 바꾸지 못한다.
+- 같은 이메일의 계정이 있어도 자동으로 연결하지 않는다. 기존 비밀번호로 확인한 뒤에만 연결한다.
+- 환경 변수는 `.env.example`의 '인증', 'Google 로그인' 항목을 본다. `JWT_ACCESS_SECRET`을 비워 두면 개발 서버가 실행마다 임시 키를 만든다(경고 출력). **운영에서는 32자 이상의 키가 없으면 서버가 시작하지 않는다.**
+- 상세 명세와 정책 근거: `planning/API_SPEC_v1.md` §3·§3.1·§3.2, `planning/DECISIONS.md` D-64~D-74.
+
+### Google Cloud 설정
+
+Google 로그인 버튼은 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`가 모두 있을 때만 동작한다. 없으면 로그인 화면에 설정 안내가 나오고, 임의의 키를 만들어 두지 않는다. Client Secret은 `.env`에만 두고 Git에 커밋하지 않는다.
+
+1. [Google Cloud Console](https://console.cloud.google.com/)에서 프로젝트를 만들거나 고른다.
+2. **API 및 서비스 → OAuth 동의 화면**에서 사용자 유형을 외부(테스트)로 두고, 앱 이름과 지원 이메일을 입력한다. 로그인에 쓸 Google 계정을 **테스트 사용자**로 넣는다.
+3. **API 및 서비스 → 사용자 인증 정보 → 사용자 인증 정보 만들기 → OAuth 클라이언트 ID**에서 애플리케이션 유형을 **웹 애플리케이션**으로 한다.
+4. **승인된 JavaScript 원본**에 `http://localhost:5173` 을 넣는다.
+5. **승인된 리디렉션 URI**에 아래 주소를 한 글자도 다르지 않게 넣는다.
+
+   `http://localhost:5173/api/auth/oauth/google/callback`
+
+   로컬 개발 서버(Vite)가 `/api`를 API로 프록시하므로, 브라우저는 `localhost:5173`에 머문 채 콜백 쿠키를 받는다. `localhost:4000`으로 두면 프론트와 쿠키 출처가 달라진다.
+
+6. 발급된 클라이언트 ID와 클라이언트 보안 비밀번호를 프로젝트 루트 `.env`에 적는다.
+
+   ```
+   GOOGLE_CLIENT_ID=발급된 클라이언트 ID
+   GOOGLE_CLIENT_SECRET=발급된 클라이언트 보안 비밀번호
+   GOOGLE_REDIRECT_URI=http://localhost:5173/api/auth/oauth/google/callback
+   ```
+
+7. API 서버를 다시 시작한다. `GET /api/auth/oauth/google/status`가 `{ "data": { "enabled": true } }`이면 로그인·회원가입 화면에 **Google로 계속하기**가 나타난다.

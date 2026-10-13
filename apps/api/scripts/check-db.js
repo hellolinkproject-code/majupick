@@ -11,6 +11,7 @@ const EXPECTED_TABLES = [
   'client_profiles',
   'freelancer_profiles',
   'freelancer_tech_stacks',
+  'oauth_transactions',
   'project_tech_stacks',
   'projects',
   'refresh_tokens',

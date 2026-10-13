@@ -55,6 +55,21 @@ export function validateSignup(body) {
   return { name, email, password, role: input.role };
 }
 
+/** AUTH-08 요청 검증. 비밀번호 규칙은 검사하지 않는다(기존 계정 가입 때 검사함). */
+export function validateLink(body) {
+  const password = typeof body?.password === 'string' ? body.password : '';
+  if (!password) throw validationError({ password: '비밀번호를 입력해 주세요.' });
+  return { password };
+}
+
+/** AUTH-09 요청 검증. */
+export function validateRoleSelection(body) {
+  if (!USER_ROLES.includes(body?.role)) {
+    throw validationError({ role: '의뢰인 또는 프리랜서를 선택해 주세요.' });
+  }
+  return { role: body.role };
+}
+
 /** AUTH-02 요청 검증. 비밀번호 규칙은 검사하지 않는다(가입 때 검사함). */
 export function validateLogin(body) {
   const input = body ?? {};

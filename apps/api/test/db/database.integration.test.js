@@ -9,6 +9,7 @@ const EXPECTED_TABLES = [
   'client_profiles',
   'freelancer_profiles',
   'freelancer_tech_stacks',
+  'oauth_transactions',
   'project_tech_stacks',
   'projects',
   'refresh_tokens',
@@ -94,7 +95,7 @@ describe('test database isolation', () => {
     expect(() => createPrismaClient({ target: 'development' })).toThrow();
   });
 
-  it('has the 9 migrated tables and the applied migration', async () => {
+  it('has the migrated tables and the applied migration', async () => {
     const tables = await prisma.$queryRaw`
       SELECT table_name FROM information_schema.tables
       WHERE table_schema = 'public' AND table_name <> '_prisma_migrations'

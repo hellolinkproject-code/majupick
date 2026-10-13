@@ -41,9 +41,10 @@
 | 연결 | `project_tech_stacks` | 프로젝트 ↔ 기술 스택 다대다 | 프로젝트 필요 기술(A-15) |
 | 연결 | `freelancer_tech_stacks` | 프리랜서 ↔ 기술 스택 다대다 | 프리랜서 보유 기술(A-11) |
 | 보조 | `social_accounts` | 소셜 로그인 연동 | Google 우선 + 계정 연동(A-05, A-06, D-57) |
+| 보조 | `oauth_transactions` | OAuth state·연동 확인 | PKCE·nonce·일회용 10분(A-05, A-06, D-71). STEP 04-B |
 | 보조 | `refresh_tokens` | Refresh Token 저장·무효화 | 재발급·로그아웃 무효화(A-03, A-04, D-26) |
 
-**총 15개** (핵심 8 + 보조 5 + 연결 2). 두지 않는 테이블과 이유는 ERD_DRAFT §1.1과 같다(금액 제안, 정산, 납품, 상태 이력, AI 결과 테이블 없음).
+**총 16개** (핵심 8 + 보조 6 + 연결 2). STEP 04-B에서 `oauth_transactions`를 추가했다. 두지 않는 테이블과 이유는 ERD_DRAFT §1.1과 같다(금액 제안, 정산, 납품, 상태 이력, AI 결과 테이블 없음).
 
 ---
 
@@ -54,6 +55,7 @@ erDiagram
   users ||--o| client_profiles : "1:0..1"
   users ||--o| freelancer_profiles : "1:0..1"
   users ||--o{ social_accounts : "links"
+  users ||--o{ oauth_transactions : "oauth state"
   users ||--o{ refresh_tokens : "owns"
   freelancer_profiles ||--o{ freelancer_tech_stacks : "has"
   tech_stacks ||--o{ freelancer_tech_stacks : "used by"
@@ -271,6 +273,24 @@ erDiagram
 
 - UNIQUE `(provider, provider_user_id)`: 같은 Google 계정이 두 사용자에 연결되지 않는다.
 - UNIQUE `(user_id, provider)`: 한 사용자는 제공자당 계정 1개만 연동한다.
+
+### 3.2.1 oauth_transactions (STEP 04-B)
+
+| 컬럼 | 타입 | NULL | 기본값 | 제약 | 설명 |
+|---|---|---|---|---|---|
+| id | integer | - | identity | PK | |
+| kind | oauth_transaction_kind | - | | | `LOGIN`(Google 진행) 또는 `LINK`(계정 연결 확인) |
+| token_hash | char(64) | - | | UNIQUE | 쿠키 원문(`state` 또는 연동 토큰)의 SHA-256 |
+| code_verifier | varchar(255) | N | | | PKCE verifier. LOGIN 동안만 |
+| nonce | varchar(255) | N | | | OIDC nonce. LOGIN 동안만 |
+| return_to | varchar(500) | N | | | 검증된 내부 경로 |
+| provider_user_id | varchar(255) | N | | | 연결할 Google `sub`. LINK만 |
+| email | varchar(255) | N | | | 연결 시점 이메일. LINK만 |
+| user_id | integer | N | | FK → users.id (CASCADE) | 연결 대상. LOGIN은 NULL |
+| expires_at | timestamptz | - | | | 10분 |
+| created_at | timestamptz | - | now() | | |
+
+- 콜백·연결 확인에 성공하면 행을 삭제한다(일회용). Google 토큰 원문은 저장하지 않는다.
 
 ### 3.3 refresh_tokens
 
@@ -573,6 +593,15 @@ erDiagram
 | 검증 | 실제 DB 카탈로그 조회 + 통합 테스트 22개(`apps/api/test/db/`) 통과 |
 
 아직 만들지 않은 테이블: `applications`, `contracts`, `payments`, `reviews`, `notifications`, `bookmarks`. 각 기능 단계에서 새 마이그레이션으로 추가한다(기존 마이그레이션 파일은 수정하지 않는다).
+
+### 7.3 STEP 04-B (2026-10-13)
+
+| 항목 | 내용 |
+|---|---|
+| 마이그레이션 | `apps/api/prisma/migrations/20261013030539_oauth_transactions/migration.sql` |
+| 추가 | `oauth_transaction_kind` enum, `oauth_transactions` 테이블. `DROP`·사용자 삭제는 없다 |
+| 적용 | `workbridge_dev`, `workbridge_test`에 `prisma migrate deploy` |
+| UNIQUE | `oauth_transactions.token_hash`. 기존 `social_accounts(provider, provider_user_id)`, `(user_id, provider)`는 그대로다 |
 
 ### 7.2 설계와 다른 점과 이유
 

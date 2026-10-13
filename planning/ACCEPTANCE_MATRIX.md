@@ -27,9 +27,9 @@ BE 모듈 목록: `auth`, `users`, `techStacks`, `uploads`, `projects`, `project
 | A-02 | 로그인과 토큰 발급 | 1 | auth | 로그인 | AUTH-01, AUTH-02 | I: 로그인 성공 시 Access 본문 + Refresh 쿠키, 실패 401 | 검증 (STEP 04-A: 계정 유무 같은 401, 호출 제한 429, FE 폼·오류 문구 U) |
 | A-03 | Access Token 자동 재발급 | 1 | auth | (API 클라이언트) | AUTH-03 | I: 재발급·교체·재사용 감지. U(FE): 401 → 재발급 → 재시도 | 검증 (STEP 04-A: 만료 토큰 401 `TOKEN_EXPIRED`, 동시 재발급 1건만 성공, FE 동시 401 → 재발급 1회 → 모두 재시도) |
 | A-04 | 로그아웃 | 1 | auth | 헤더 | AUTH-04 | I: 로그아웃 후 재발급 401 | 검증 (STEP 04-A: FE 헤더 변경 U) |
-| A-05 | 소셜 로그인 1종(Google) | 1 | auth | 로그인, 소셜 콜백 | AUTH-06, AUTH-07 | I(mock 제공자): 신규 생성·기존 소셜 로그인·`email_verified=false` 거부. E: 실제 Google sandbox 앱 | 설계 |
-| A-06 | 동일 이메일 계정 연동 | 1 | auth | 계정 연동 확인 | AUTH-07, AUTH-08 | I: 같은 이메일 → 연동 확인 요구 → 비밀번호 일치 시 연동, 불일치 401, 만료 401, 연동 후 새 계정 미생성 | 설계 |
-| A-07 | 최초 소셜 로그인 시 역할 선택 | 1 | auth | 역할 선택 | AUTH-07, AUTH-09 | I: 역할 NULL 사용자 → 역할 설정, 재설정 409, 역할 없이 보호 API 403 | 설계 |
+| A-05 | 소셜 로그인 1종(Google) | 1 | auth | 로그인, 소셜 콜백 | AUTH-06, AUTH-07 | I(mock 제공자): 신규 생성·기존 소셜 로그인·`email_verified=false` 거부. E: 실제 Google sandbox 앱 | 검증 (STEP 04-B: Mock·DB. 실제 Google 브라우저 확인 2026-10-13: 최초 로그인 → FREELANCER 선택 → `/me`, 새로고침 유지, 로그아웃, 같은 계정 재로그인 시 역할 재선택 없음) |
+| A-06 | 동일 이메일 계정 연동 | 1 | auth | 계정 연동 확인 | AUTH-07, AUTH-08 | I: 같은 이메일 → 연동 확인 요구 → 비밀번호 일치 시 연동, 불일치 401, 만료 401, 연동 후 새 계정 미생성 | 검증 (STEP 04-B: 자동 연결 차단, 틀린 비밀번호 401, 비밀번호 없는 계정 거부, 연동 후 이메일 로그인 유지). 실제 Google 계정으로 기존 이메일 계정을 연결하는 브라우저 흐름은 미검증 |
+| A-07 | 최초 소셜 로그인 시 역할 선택 | 1 | auth | 역할 선택 | AUTH-07, AUTH-09 | I: 역할 NULL 사용자 → 역할 설정, 재설정 409, 역할 없이 보호 API 403 | 검증 (STEP 04-B: `ROLE_REQUIRED`, 선택 후 같은 Access Token으로 통과, 기존 역할 409. 실제 Google 신규 사용자 역할 선택 브라우저 확인) |
 | A-08 | 역할 구분과 권한 | 1 | auth(미들웨어) | - | 전 API | I: 프리랜서의 등록 403, 의뢰인의 지원 403 | 설계 |
 | A-09 | 공통 프로필 + 이미지 업로드 | 1 | users, uploads | 내 프로필 | PROF-01, PROF-04, AUTH-05 | I: 수정, 업로드 형식·용량 오류(스토리지 mock) | 설계 |
 | A-10 | 의뢰인 프로필 | 1 | users | 내 프로필 | PROF-02, SRCH-03 | I: 저장, ETC일 때만 자유 입력 | 설계 |
