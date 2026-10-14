@@ -1,4 +1,4 @@
-// WorkBridge Prisma schema — planning/ERD_v1.md 기준 (STEP 03-B 범위 9개 테이블)
+// WorkBridge Prisma schema — planning/ERD_v1.md 기준 (STEP 03-B 9개 테이블 + 이후 단계 추가분)
 // - 금액은 bigint(원), 상한 없음. API에서는 10진수 문자열로 직렬화한다(D-51, D-42).
 // - 시각은 timestamptz(UTC 저장), 모집 날짜는 date(KST 날짜)다(D-41, D-58).
 // - Prisma로 표현할 수 없는 CHECK 제약은 마이그레이션 SQL에 직접 추가했다.
@@ -263,12 +263,15 @@ model Project {
   cancelledAt      DateTime?       @map("cancelled_at") @db.Timestamptz(3)
   /// 소프트 삭제
   deletedAt        DateTime?       @map("deleted_at") @db.Timestamptz(3)
+  /// 등록 요청 키(Idempotency-Key). 같은 의뢰인이 같은 키로 다시 보내면 새로 만들지 않는다
+  idempotencyKey   String?         @map("idempotency_key") @db.Uuid
   createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   client     User               @relation(fields: [clientId], references: [id], onDelete: Restrict)
   techStacks ProjectTechStack[]
 
+  @@unique([clientId, idempotencyKey])
   @@index([status, recruitEndDate], map: "projects_status_recruit_end_date_active_idx", where: raw("deleted_at IS NULL"))
   @@index([status, recruitStartDate], map: "projects_status_recruit_start_date_active_idx", where: raw("deleted_at IS NULL"))
   @@index([category])

@@ -17,7 +17,9 @@ export function installMockApi(handlers) {
       key,
       body,
       rawData: config.data,
+      params: config.params,
       authorization: config.headers?.get?.('Authorization') ?? null,
+      header: (name) => config.headers?.get?.(name) ?? null,
     };
     calls.push(call);
 

@@ -3,6 +3,11 @@ import { healthRouter } from './health.js';
 import { metaRouter } from './meta.js';
 import { createAuthRouter } from '../modules/auth/auth.router.js';
 import { createUsersRouter } from '../modules/profiles/users.router.js';
+import {
+  createMyProjectsRouter,
+  createProjectsRouter,
+} from '../modules/projects/projects.router.js';
+import { createProjectService } from '../modules/projects/project.service.js';
 import { createTechStacksRouter } from '../modules/techStacks/techStacks.router.js';
 import { createUploadsRouter } from '../modules/uploads/uploads.router.js';
 
@@ -25,6 +30,9 @@ export function createApiRouter({
     apiRouter.use('/auth', createAuthRouter({ prisma, config, authConfig, googleOAuth }));
     apiRouter.use('/users', createUsersRouter({ prisma, authConfig, imageStorage }));
     apiRouter.use('/tech-stacks', createTechStacksRouter({ prisma, authConfig }));
+    const projectService = createProjectService({ prisma });
+    apiRouter.use('/projects', createProjectsRouter({ prisma, authConfig, projectService }));
+    apiRouter.use('/me', createMyProjectsRouter({ prisma, authConfig, projectService }));
     if (imageStorage) {
       apiRouter.use('/uploads', createUploadsRouter({ prisma, authConfig, imageStorage }));
     }

@@ -10,7 +10,7 @@ export const URL_MAX_LENGTH = 500;
 export const CAREER_YEARS_MAX = 80;
 export const TECH_STACKS_MAX = 20;
 // PostgreSQL bigint 최대값. 정책 상한이 아니라 저장 가능한 범위다(D-42).
-const BIGINT_MAX = 9223372036854775807n;
+export const BIGINT_MAX = 9223372036854775807n;
 
 function validationError(fields) {
   return new HttpError(400, 'VALIDATION_ERROR', '입력값을 확인해 주세요.', { fields });

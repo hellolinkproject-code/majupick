@@ -614,6 +614,17 @@ erDiagram
 | 금액 | `freelancer_profiles.hourly_rate` `bigint`. API는 문자열로 주고받아 `9007199254740993123` 같은 큰 값도 그대로 저장·조회됨을 DB 테스트로 확인 |
 | 이미지 | DB에는 공개 경로(`/api/uploads/profile-images/<hex>.webp`)만 저장. 파일은 DB 밖 저장소(D-76) |
 
+### 7.5 STEP 05-A 프로젝트 등록·관리 (2026-10-14)
+
+| 항목 | 내용 |
+|---|---|
+| 마이그레이션 | `apps/api/prisma/migrations/20261014011000_project_idempotency_key/migration.sql` |
+| 추가 | `projects.idempotency_key uuid NULL`, UNIQUE `projects_client_id_idempotency_key_key (client_id, idempotency_key)`. 기존 행은 NULL이고 PostgreSQL UNIQUE는 NULL끼리 충돌하지 않는다. `DROP`·데이터 삭제는 없다 |
+| 적용 | `workbridge_dev`(`db:migrate:deploy`), `workbridge_test`(`db:migrate:test`). `migrate dev`·`reset`·`push`는 쓰지 않았다(D-62). 적용 후 `prisma migrate diff`는 "No difference detected" |
+| 쓰임 | 등록 요청의 `Idempotency-Key`를 저장해 같은 의뢰인의 재전송·동시 전송을 한 건으로 만든다(D-79). 키는 의뢰인별이라 다른 의뢰인이 같은 값을 써도 각자 만들어진다 |
+| 그대로 쓴 것 | `projects`의 나머지 컬럼·CHECK(`budget > 0`, 모집일 순서)·부분 인덱스, `project_tech_stacks`. 소프트 삭제는 `deleted_at`(D-53), 마감 시각은 `closed_at` |
+| 금액·날짜 | `budget` `bigint`(API는 문자열). 모집일은 `date`(KST 달력 날짜), Prisma에서는 UTC 자정 `Date`로 읽고 쓴다 |
+
 ### 7.2 설계와 다른 점과 이유
 
 | # | 설계(§3) | 구현 | 이유 |

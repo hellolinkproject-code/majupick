@@ -13,3 +13,18 @@ export function createAuthenticate(authConfig) {
     return next();
   };
 }
+
+/**
+ * 공개 API용. 헤더가 없으면 비로그인(req.auth = null)으로 진행하고, 헤더가 있으면 authenticate와 같이 검증한다.
+ * 만료 토큰을 비로그인으로 넘기지 않아야 FE가 재발급 후 다시 요청해 소유자 화면을 받는다.
+ */
+export function createOptionalAuthenticate(authConfig) {
+  const authenticate = createAuthenticate(authConfig);
+  return function optionalAuthenticate(req, res, next) {
+    if (!req.get('authorization')) {
+      req.auth = null;
+      return next();
+    }
+    return authenticate(req, res, next);
+  };
+}

@@ -322,11 +322,11 @@
 
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
-| PRJ-01 | POST | `/projects` | CLIENT +프로필 | A-15, A-24 | 설계 |
-| PRJ-02 | GET | `/projects/:projectId` | 공개 | A-18, A-26 | 설계 |
-| PRJ-03 | PATCH | `/projects/:projectId` | 소유자 | A-16, B-03 | 설계 |
-| PRJ-04 | DELETE | `/projects/:projectId` | 소유자 | A-17 | 설계 |
-| PRJ-05 | GET | `/me/projects` | CLIENT | A-28 | 설계 |
+| PRJ-01 | POST | `/projects` | CLIENT +프로필 | A-15, A-24 | 구현 (STEP 05-A) |
+| PRJ-02 | GET | `/projects/:projectId` | 공개 | A-18, A-26 | 구현 (STEP 05-A) |
+| PRJ-03 | PATCH | `/projects/:projectId` | 소유자 | A-16, B-03 | 구현 (STEP 05-A) |
+| PRJ-04 | DELETE | `/projects/:projectId` | 소유자 | A-17 | 구현 (STEP 05-A) |
+| PRJ-05 | GET | `/me/projects` | CLIENT | A-28 | 구현 (STEP 05-A) |
 
 **PRJ-01 프로젝트 등록** (3단계 퍼널의 마지막에 한 번 호출)
 - 요청: `{ title, description, category, recruitStartDate?: "2026-10-20", recruitEndDate: "2026-11-05", budget: "3000000", techStackIds: [1, 5] }`
@@ -351,6 +351,29 @@
 **PRJ-05 내 프로젝트** (의뢰인)
 - 쿼리: `status`(7개 상태 중 선택), `page`
 - 응답 200: 목록 + `pagination`. 각 항목에 7개 상태와 계약 세부 상태(`contractStatus`, 화면 표시용 `displayStatus` 예: "결제 대기") 포함
+
+### 5.1 STEP 05-A 구현 내용과 명세 대비 차이 (PRJ-01~05)
+
+구현: `apps/api/src/modules/projects/`(`project.validation.js`, `project.service.js`, `projectStatus.js`, `projects.router.js`), `apps/api/src/middlewares/authenticate.js`(`createOptionalAuthenticate`). 화면: `apps/web/src/pages/Project*Page.jsx`, `MyProjectsPage.jsx`. 테스트: `apps/api/test/project.unit.test.js`(단위), `apps/api/test/db/projects.integration.test.js`(실제 테스트 DB), `apps/web/src/app/projectFlow.test.jsx`(화면). 마이그레이션 1개(ERD_v1 §7.5).
+
+| # | 항목 | 명세 | 구현 | 근거 |
+|---|---|---|---|---|
+| 1 | PRJ-01 중복 등록 | 미정 | `Idempotency-Key` 헤더(UUID) 필수, 없으면 400. 같은 의뢰인이 같은 키로 다시 보내면 새로 만들지 않고 200으로 기존 프로젝트 반환(처음은 201). 동시 요청도 `(client_id, idempotency_key)` UNIQUE로 1건만 생성. 그 키의 프로젝트가 삭제됐으면 409 `CONFLICT` | D-79 |
+| 2 | PRJ-01 확인 순서 | `+프로필` | 로그인(401) → 역할 선택(`ROLE_REQUIRED`) → 의뢰인(403 `FORBIDDEN`) → 프로필 완성(403 `PROFILE_INCOMPLETE` + `missingFields`) → 키·입력 검사(400) | D-78 |
+| 3 | 입력 범위 | 미정 | 제목 1~100자, 설명 1~5,000자, 카테고리 enum, 날짜 `YYYY-MM-DD`(실제 있는 날짜, KST), 예산 1~bigint 최대(숫자 문자열 또는 안전 정수, D-51), 기술 스택 1~20개(중복·없는 ID 400). 등록 시 과거 시작일·과거 마감일·마감일 < 시작일은 400 | D-47, D-77과 같은 기준 |
+| 4 | `ProjectDetail` | 소유자에게 `status` | 모든 사용자에게 `isOwner`. 소유자에게만 `status`, `availableActions`(`EDIT`·`DELETE`), `lockedFields`. 화면은 이 값으로 버튼을 보이고 숨긴다(최종 판단은 서버) | 권한 계산을 FE와 BE에 두 번 두지 않음 |
+| 5 | 아직 없는 값 | `applicantCount`, `isBookmarked`, `myApplication`, 추천 섹션 | `applicantCount`는 항상 0. 나머지는 응답에 넣지 않음 | 지원·북마크·추천 테이블이 아직 없음(해당 단계에서 추가) |
+| 6 | PRJ-02 인증 | 공개 | 토큰이 없으면 공개 응답. 토큰이 있는데 틀렸거나 만료면 401(조용히 공개 응답으로 바꾸지 않음) | FE 재발급 인터셉터가 동작하도록 |
+| 7 | PRJ-03 수정 가능 상태 | D-55 | `SCHEDULED`·`RECRUITING`·`CLOSED`만. `CONTRACTING` 이후 409 `FIELD_LOCKED`, `CANCELLED` 409 `INVALID_STATE_TRANSITION`. `CLOSED`에서 모집일 변경은 409 `FIELD_LOCKED` + `lockedFields` | D-80, D-09 |
+| 8 | PRJ-03 요청 | 부분 수정 | 바뀐 항목만 받음. 빈 요청 400, `status` 400(상태는 STAT API로만), `recruitEndDate: null` 400, `clientId` 무시. 날짜 검사는 바뀐 값에만 적용(이미 지난 기존 시작일은 그대로 둘 수 있음). 시작일을 바꾸면 `SCHEDULED`/`RECRUITING` 재계산. 기술 스택은 통째로 교체. 비소유자 403 `FORBIDDEN`, 삭제됨 404. 행을 `FOR UPDATE`로 잠그고 트랜잭션 안에서 저장 | D-80 |
+| 9 | 지원자 관련 제한 | D-06(예산·마감일), D-07(대기 지원 거절) | 아직 적용할 대상 없음 | 지원 테이블이 아직 없음. 지원 기능 단계에서 같은 서비스 함수에 추가 |
+| 10 | PRJ-04 삭제 가능 상태 | D-07 | `SCHEDULED`·`RECRUITING`·`CLOSED`만. 그 밖은 409 `INVALID_STATE_TRANSITION`. 삭제 후 상세·수정·삭제·내 목록 모두 404/제외, DB 행은 남음 | D-80, D-53 |
+| 11 | PRJ-05 쿼리·항목 | `status`, `page`, `contractStatus`, `displayStatus` | `page`만(기본 1, 10개, 최신 등록순). 각 항목은 요약 + `status`·`availableActions`·`lockedFields`. 계약 세부 상태는 없음. 의뢰인이 아니면 403 `FORBIDDEN` | 상태 필터는 STEP 05-B, 계약 세부 상태는 계약 단계 |
+| 12 | 상태 자동 전환 | D-08 | 상세·수정·삭제·내 목록 조회 직전에 조건부 `UPDATE`로 보정(시작일 도래 → `RECRUITING`, 마감일 경과 → `CLOSED` + `closed_at`). 여러 번 실행해도 결과가 같다. 마감 시 대기 지원 일괄 거절(A-34)은 지원 단계에서 추가 | D-81 |
+| 13 | 응답 캐시 | 없음 | `/api/projects`, `/api/me/projects` 응답에 `Cache-Control: no-store` | 소유자 전용 필드가 캐시되지 않게 |
+
+- 예산은 DB `bigint`, 응답은 문자열이다. `9007199254740993`(2^53 + 1)을 화면에서 등록해 DB·응답·화면 모두 같은 값임을 확인했다.
+- 날짜는 KST 달력 날짜(`YYYY-MM-DD`)로 주고받는다. "오늘"은 서버가 UTC + 9시간으로 계산한다(D-41, D-58).
 
 ---
 
