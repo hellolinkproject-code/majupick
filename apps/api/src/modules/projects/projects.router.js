@@ -11,6 +11,7 @@ import {
   validateProjectCreate,
   validateProjectUpdate,
 } from './project.validation.js';
+import { parseProjectSearch } from './projectSearch.js';
 import { todayKst } from './projectStatus.js';
 
 function onlyClient(action) {
@@ -35,7 +36,7 @@ function createGuards(prisma, authConfig) {
 }
 
 /**
- * PRJ-01~04. 등록 확인 순서: 로그인(401) → 역할 선택(ROLE_REQUIRED) → 의뢰인(FORBIDDEN)
+ * SRCH-01, PRJ-01~04. 등록 확인 순서: 로그인(401) → 역할 선택(ROLE_REQUIRED) → 의뢰인(FORBIDDEN)
  * → 필수 프로필(PROFILE_INCOMPLETE) → 입력 검사(400). 상세는 공개이며 소유자에게만 내부 상태를 준다.
  */
 export function createProjectsRouter({ prisma, authConfig, projectService }) {
@@ -44,6 +45,11 @@ export function createProjectsRouter({ prisma, authConfig, projectService }) {
   const guard = createGuards(prisma, authConfig);
 
   router.use(noStore);
+
+  /** SRCH-01. 로그인 없이 검색한다. 응답에는 공개 요약만 담으므로 토큰은 보지 않는다. */
+  router.get('/', async (req, res) => {
+    res.json(await service.searchProjects(parseProjectSearch(req.query)));
+  });
 
   router.post(
     '/',

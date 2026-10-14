@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { createAuthenticate } from '../../middlewares/authenticate.js';
 import { createRequireRole } from '../../middlewares/requireRole.js';
+import { escapeLike } from '../../utils/like.js';
 import { parseTechStackQuery, validateTechStackName } from '../profiles/profile.validation.js';
 import { normalizeTechStackName } from './techStack.js';
 
@@ -13,13 +14,22 @@ export function createTechStacksRouter({ prisma, authConfig }) {
   const requireRole = createRequireRole(prisma);
 
   router.get('/', async (req, res) => {
-    const { q, limit } = parseTechStackQuery(req.query);
+    const { q, limit, ids } = parseTechStackQuery(req.query);
+    if (ids) {
+      const techStacks = await prisma.techStack.findMany({
+        where: { id: { in: ids } },
+        select: PUBLIC_FIELDS,
+        orderBy: { name: 'asc' },
+      });
+      res.json({ data: techStacks });
+      return;
+    }
     const normalized = q ? normalizeTechStackName(q) : '';
     const where = q
       ? {
           OR: [
-            { name: { contains: q, mode: 'insensitive' } },
-            ...(normalized ? [{ normalizedName: { contains: normalized } }] : []),
+            { name: { contains: escapeLike(q), mode: 'insensitive' } },
+            ...(normalized ? [{ normalizedName: { contains: escapeLike(normalized) } }] : []),
           ],
         }
       : {};

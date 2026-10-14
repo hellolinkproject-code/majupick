@@ -47,6 +47,12 @@ export async function fetchTechStacks(q) {
   return res.data.data;
 }
 
+/** PROF-06 `ids`. URL에 남은 기술 스택 ID의 이름을 보여 줄 때 쓴다. 없는 ID는 빠진다. */
+export async function fetchTechStacksByIds(ids) {
+  const res = await apiClient.get('/tech-stacks', { params: { ids: ids.join(',') } });
+  return res.data.data;
+}
+
 /** PROF-07. 같은 이름(정규화 기준)이 있으면 기존 항목을 돌려준다. */
 export async function createTechStack(name) {
   const res = await apiClient.post('/tech-stacks', { name });

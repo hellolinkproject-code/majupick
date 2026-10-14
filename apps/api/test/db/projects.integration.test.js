@@ -301,7 +301,7 @@ describe('GET /api/projects/:id (PRJ-02)', () => {
     expect(badToken.status).toBe(401);
   });
 
-  it('moves projects along by date when they are read (D-08)', async () => {
+  it('shows the date-based status on read without writing, and stores it on the next edit (D-83)', async () => {
     const started = await insertProject(users.client.id, {
       status: 'SCHEDULED',
       recruitStartDate: toDbDate(today),
@@ -312,14 +312,33 @@ describe('GET /api/projects/:id (PRJ-02)', () => {
     });
 
     expect((await getProject(started.id, users.client)).body.data.status).toBe('RECRUITING');
+    expect((await getProject(started.id)).body.data.publicStatus).toBe('RECRUITING');
     const closed = await getProject(expired.id, users.client);
     expect(closed.body.data).toMatchObject({
       status: 'CLOSED',
       publicStatus: 'CLOSED',
       lockedFields: ['recruitStartDate', 'recruitEndDate'],
     });
-    const stored = await prisma.project.findUnique({ where: { id: expired.id } });
-    expect(stored.closedAt).toBeInstanceOf(Date);
+    const mine = await myProjects(users.client);
+    expect(mine.body.data.find((p) => p.id === expired.id)?.status).toBe('CLOSED');
+
+    const unchanged = await prisma.project.findMany({
+      where: { id: { in: [started.id, expired.id] } },
+      orderBy: { id: 'asc' },
+    });
+    expect(unchanged.map((p) => [p.status, p.closedAt, p.updatedAt])).toEqual([
+      ['SCHEDULED', null, started.updatedAt],
+      ['RECRUITING', null, expired.updatedAt],
+    ]);
+
+    expect((await patch(users.client, started.id, { title: '시작일 도래' })).status).toBe(200);
+    expect((await patch(users.client, expired.id, { title: '마감일 경과' })).status).toBe(200);
+    const stored = await prisma.project.findMany({
+      where: { id: { in: [started.id, expired.id] } },
+      orderBy: { id: 'asc' },
+    });
+    expect(stored.map((p) => p.status)).toEqual(['RECRUITING', 'CLOSED']);
+    expect(stored[1].closedAt).toBeInstanceOf(Date);
   });
 
   it('hides cancelled projects from everyone but the owner', async () => {

@@ -111,6 +111,7 @@ function ProjectFunnel({ user, categories }) {
     onSuccess: (project) => {
       clearProjectDraft(user.id);
       queryClient.invalidateQueries({ queryKey: ['my-projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project-search'] });
       queryClient.setQueryData(['project', String(project.id)], project);
       navigate(`/projects/${project.id}`, {
         replace: true,

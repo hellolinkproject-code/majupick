@@ -1,15 +1,20 @@
 import { HttpError } from '../../utils/httpError.js';
 import { DATE_MESSAGES, MY_PROJECTS_PAGE_SIZE } from './project.validation.js';
+import { buildSearchWhere, SEARCH_PAGE_SIZE, searchSegments } from './projectSearch.js';
 import {
   DELETABLE_STATUSES,
   EDITABLE_STATUSES,
+  effectiveStatus,
   fromDbDate,
   initialRecruitStatus,
+  PUBLIC_PROJECT_WHERE,
   syncRecruitStatuses,
   toDbDate,
   todayKst,
   toPublicStatus,
 } from './projectStatus.js';
+
+const DESCRIPTION_PREVIEW_LENGTH = 120;
 
 const notFound = () => new HttpError(404, 'NOT_FOUND', '프로젝트를 찾을 수 없습니다.');
 const notOwner = (action) =>
@@ -90,6 +95,44 @@ export function toProjectDetail(project, viewerId = null) {
 function toMyProject(project) {
   return { ...toSummary(project), ...ownerFields(project) };
 }
+
+/** 조회 응답용: 마감일·시작일이 지난 상태를 DB에 쓰지 않고 반영한다(D-83). */
+function withCurrentStatus(project, today) {
+  return { ...project, status: effectiveStatus(project, today) };
+}
+
+/** 검색 목록 카드. 공개 요약 + 설명 앞부분. 의뢰인 정보·소유자 전용 필드는 넣지 않는다. */
+function toSearchItem(project) {
+  const text = project.description.replace(/\s+/g, ' ').trim();
+  return {
+    ...toSummary(project),
+    descriptionPreview:
+      text.length > DESCRIPTION_PREVIEW_LENGTH
+        ? `${text.slice(0, DESCRIPTION_PREVIEW_LENGTH)}…`
+        : text,
+  };
+}
+
+const searchSelect = Object.freeze({
+  id: true,
+  title: true,
+  description: true,
+  category: true,
+  budget: true,
+  recruitStartDate: true,
+  recruitEndDate: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+  techStacks: projectInclude.techStacks,
+});
+
+const pagination = (page, pageSize, totalCount) => ({
+  page,
+  pageSize,
+  totalCount,
+  totalPages: Math.ceil(totalCount / pageSize),
+});
 
 const now = () => new Date();
 
@@ -183,16 +226,15 @@ export function createProjectService({ prisma }) {
       }
     },
 
-    /** PRJ-02. 삭제된 프로젝트는 누구에게나 404, 취소된 프로젝트는 소유자만 본다. */
+    /** PRJ-02. 삭제된 프로젝트는 누구에게나 404, 취소된 프로젝트는 소유자만 본다. DB는 바꾸지 않는다. */
     async getProject(projectId, viewerId = null) {
-      await syncRecruitStatuses(prisma, { id: projectId }, now());
       const project = await prisma.project.findFirst({
         where: { id: projectId, deletedAt: null },
         include: projectInclude,
       });
       if (!project) throw notFound();
       if (project.status === 'CANCELLED' && project.clientId !== viewerId) throw notFound();
-      return toProjectDetail(project, viewerId);
+      return toProjectDetail(withCurrentStatus(project, todayKst(now())), viewerId);
     },
 
     /**
@@ -268,28 +310,77 @@ export function createProjectService({ prisma }) {
       });
     },
 
-    /** PRJ-05 내 프로젝트(최신 등록순, 페이지당 10개). 검색·필터·정렬은 STEP 05-B. */
+    /** PRJ-05 내 프로젝트(최신 등록순, 페이지당 10개). DB는 바꾸지 않는다. */
     async listMyProjects(clientId, page) {
-      await syncRecruitStatuses(prisma, { clientId }, now());
+      const today = todayKst(now());
       const where = { clientId, deletedAt: null };
-      const [totalCount, projects] = await Promise.all([
-        prisma.project.count({ where }),
-        prisma.project.findMany({
-          where,
-          include: projectInclude,
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          skip: (page - 1) * MY_PROJECTS_PAGE_SIZE,
-          take: MY_PROJECTS_PAGE_SIZE,
-        }),
-      ]);
+      const [totalCount, projects] = await prisma.$transaction(
+        [
+          prisma.project.count({ where }),
+          prisma.project.findMany({
+            where,
+            include: projectInclude,
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            skip: (page - 1) * MY_PROJECTS_PAGE_SIZE,
+            take: MY_PROJECTS_PAGE_SIZE,
+          }),
+        ],
+        { isolationLevel: 'RepeatableRead' },
+      );
       return {
-        data: projects.map(toMyProject),
-        pagination: {
-          page,
-          pageSize: MY_PROJECTS_PAGE_SIZE,
-          totalCount,
-          totalPages: Math.ceil(totalCount / MY_PROJECTS_PAGE_SIZE),
+        data: projects.map((project) => toMyProject(withCurrentStatus(project, today))),
+        pagination: pagination(page, MY_PROJECTS_PAGE_SIZE, totalCount),
+      };
+    },
+
+    /**
+     * SRCH-01 공개 검색. 삭제·취소 제외, 상태는 날짜로 계산(D-83), 페이지당 10개.
+     * 개수와 목록을 같은 스냅샷(REPEATABLE READ)에서 읽어 서로 어긋나지 않게 한다.
+     * 마감임박순처럼 구간이 둘이면 앞 구간 개수로 어느 구간의 몇 번째부터 읽을지 정한다.
+     */
+    async searchProjects(criteria) {
+      const today = todayKst(now());
+      const todayDate = toDbDate(today);
+      const base = [PUBLIC_PROJECT_WHERE, ...buildSearchWhere(criteria, todayDate)];
+      const segments = searchSegments(criteria.sort, todayDate).map((segment) => ({
+        ...segment,
+        where: { AND: segment.where ? [...base, segment.where] : base },
+      }));
+
+      const { totalCount, projects } = await prisma.$transaction(
+        async (tx) => {
+          const counts = [];
+          for (const segment of segments)
+            counts.push(await tx.project.count({ where: segment.where }));
+
+          let skip = (criteria.page - 1) * SEARCH_PAGE_SIZE;
+          const rows = [];
+          for (const [index, segment] of segments.entries()) {
+            const take = SEARCH_PAGE_SIZE - rows.length;
+            if (take === 0) break;
+            if (skip >= counts[index]) {
+              skip -= counts[index];
+              continue;
+            }
+            rows.push(
+              ...(await tx.project.findMany({
+                where: segment.where,
+                select: searchSelect,
+                orderBy: segment.orderBy,
+                skip,
+                take,
+              })),
+            );
+            skip = 0;
+          }
+          return { totalCount: counts.reduce((sum, count) => sum + count, 0), projects: rows };
         },
+        { isolationLevel: 'RepeatableRead' },
+      );
+
+      return {
+        data: projects.map((project) => toSearchItem(withCurrentStatus(project, today))),
+        pagination: pagination(criteria.page, SEARCH_PAGE_SIZE, totalCount),
       };
     },
   };

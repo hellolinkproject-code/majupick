@@ -30,6 +30,7 @@ function EditForm({ project, categories }) {
     onSuccess: (updated) => {
       queryClient.setQueryData(['project', String(updated.id)], updated);
       queryClient.invalidateQueries({ queryKey: ['my-projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project-search'] });
       navigate(`/projects/${updated.id}`, {
         replace: true,
         state: { notice: '프로젝트를 수정했습니다.' },

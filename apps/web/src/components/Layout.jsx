@@ -92,6 +92,9 @@ export function Layout() {
           WorkBridge
         </Link>
         <span className="layout__badge">개발 환경</span>
+        <nav className="layout__menu" aria-label="주요 메뉴">
+          <Link to="/projects">프로젝트 찾기</Link>
+        </nav>
         <AuthNav />
       </header>
       <main className="layout__main">

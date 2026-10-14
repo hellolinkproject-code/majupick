@@ -1,4 +1,14 @@
 import { apiClient } from './apiClient.js';
+import { criteriaToApiParams } from './projectSearch.js';
+
+/**
+ * SRCH-01 공개 검색(페이지당 10개). signal로 조건이 바뀐 이전 요청을 취소한다.
+ * @returns {Promise<{ data: object[], pagination: object }>}
+ */
+export async function searchProjects(criteria, signal) {
+  const res = await apiClient.get('/projects', { params: criteriaToApiParams(criteria), signal });
+  return res.data;
+}
 
 /**
  * PRJ-01. 같은 idempotencyKey로 다시 보내면 서버가 새로 만들지 않고 처음 등록한 프로젝트를 돌려준다.

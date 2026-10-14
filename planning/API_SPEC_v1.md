@@ -369,7 +369,7 @@
 | 9 | 지원자 관련 제한 | D-06(예산·마감일), D-07(대기 지원 거절) | 아직 적용할 대상 없음 | 지원 테이블이 아직 없음. 지원 기능 단계에서 같은 서비스 함수에 추가 |
 | 10 | PRJ-04 삭제 가능 상태 | D-07 | `SCHEDULED`·`RECRUITING`·`CLOSED`만. 그 밖은 409 `INVALID_STATE_TRANSITION`. 삭제 후 상세·수정·삭제·내 목록 모두 404/제외, DB 행은 남음 | D-80, D-53 |
 | 11 | PRJ-05 쿼리·항목 | `status`, `page`, `contractStatus`, `displayStatus` | `page`만(기본 1, 10개, 최신 등록순). 각 항목은 요약 + `status`·`availableActions`·`lockedFields`. 계약 세부 상태는 없음. 의뢰인이 아니면 403 `FORBIDDEN` | 상태 필터는 STEP 05-B, 계약 세부 상태는 계약 단계 |
-| 12 | 상태 자동 전환 | D-08 | 상세·수정·삭제·내 목록 조회 직전에 조건부 `UPDATE`로 보정(시작일 도래 → `RECRUITING`, 마감일 경과 → `CLOSED` + `closed_at`). 여러 번 실행해도 결과가 같다. 마감 시 대기 지원 일괄 거절(A-34)은 지원 단계에서 추가 | D-81 |
+| 12 | 상태 자동 전환 | D-08 | 상세·수정·삭제·내 목록 조회 직전에 조건부 `UPDATE`로 보정(시작일 도래 → `RECRUITING`, 마감일 경과 → `CLOSED` + `closed_at`). 여러 번 실행해도 결과가 같다. 마감 시 대기 지원 일괄 거절(A-34)은 지원 단계에서 추가. **STEP 05-B 변경:** 조회(상세·내 목록·검색)는 DB에 쓰지 않고 날짜로 계산한 상태를 보여 준다. 저장 보정은 수정·삭제(행 잠금) 때만 한다(§6.1 #2) | D-81 → D-83(제안) |
 | 13 | 응답 캐시 | 없음 | `/api/projects`, `/api/me/projects` 응답에 `Cache-Control: no-store` | 소유자 전용 필드가 캐시되지 않게 |
 
 - 예산은 DB `bigint`, 응답은 문자열이다. `9007199254740993`(2^53 + 1)을 화면에서 등록해 DB·응답·화면 모두 같은 값임을 확인했다.
@@ -381,7 +381,7 @@
 
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
-| SRCH-01 | GET | `/projects` | 공개 | A-19~A-23, A-26 | 설계 |
+| SRCH-01 | GET | `/projects` | 공개 | A-19~A-23, A-26 | 구현 (STEP 05-B, §6.1) |
 | SRCH-02 | GET | `/projects/:projectId/recommendations` | 공개 | A-41, D-30 | 설계 |
 | SRCH-03 | GET | `/meta/options` | 공개 | A-10, A-11, B-16, B-17 | 일부 검증(리뷰 태그 제외, §4.1) |
 
@@ -400,8 +400,34 @@
 | `page` | `1` | 페이지당 10개 고정(RFP 3.2.2) |
 
 - 응답 200: `{ data: ProjectSummary[], pagination }`. 삭제·취소된 프로젝트는 제외
-- 조회 직전에 상태 보정(시작일·마감일 경과분)을 실행한다(D-08)
+- ~~조회 직전에 상태 보정(시작일·마감일 경과분)을 실행한다(D-08)~~ → 조회는 DB에 쓰지 않고 날짜로 상태를 계산한다(D-83 제안, §6.1)
 - 오류: 400(잘못된 쿼리 값)
+
+### 6.1 STEP 05-B 구현 내용과 명세 대비 차이 (SRCH-01)
+
+구현: `apps/api/src/modules/projects/projectSearch.js`(쿼리 검사·조건·정렬), `project.service.js`(`searchProjects`), `projectStatus.js`(`effectiveStatus`·`publicStatusWhere`), `apps/api/src/utils/like.js`. 화면: `apps/web/src/pages/ProjectSearchPage.jsx`, `components/project/ProjectSearchFilters.jsx`·`ProjectCard.jsx`, `lib/projectSearch.js`. 테스트: `apps/api/test/project-search.unit.test.js`(단위), `apps/api/test/db/project-search.integration.test.js`(실제 테스트 DB), `apps/web/src/app/projectSearch.test.jsx`(화면). 스키마 변경(마이그레이션)·인덱스 추가 없음(EXPLAIN 결과는 DECISIONS §4.8 #4).
+
+| # | 항목 | 명세 | 구현 | 근거 |
+|---|---|---|---|---|
+| 1 | 공개 범위 | 삭제·취소 제외 | `deleted_at IS NULL` + `status <> CANCELLED`. 항목은 `ProjectSummary` + `descriptionPreview`(공백 정리, 120자 + "…")뿐. `clientId`·의뢰인 정보·7개 상태 `status`·`availableActions`·`idempotencyKey`는 넣지 않음 | A-26, 개인정보 |
+| 2 | 상태 보정 | 조회 직전 보정(D-08) | **조회는 DB에 쓰지 않는다.** 응답 `publicStatus`와 `status` 필터는 저장된 상태와 KST 오늘 날짜로 계산(마감일 지남 → `CLOSED`, 시작일 도래한 `SCHEDULED` → `RECRUITING`). 상세(PRJ-02)·내 목록(PRJ-05)도 같은 방식으로 바꿈. 저장 상태는 수정·삭제(행 잠금) 때 맞춤 | D-83(제안) |
+| 3 | `q` | 제목·설명 부분 일치 | 앞뒤 공백 제거, 공백으로 단어를 나눠 **모든 단어**가 제목 또는 설명에 있어야 함(대소문자 무시). 100자·5단어 초과 400. `%`·`_`·`\`는 글자 그대로 찾음(LIKE 이스케이프). SQL은 Prisma 매개변수로만 전달 | D-85(제안) |
+| 4 | `category` | enum | D-59 7개 값만. 그 밖은 400 | |
+| 5 | `budgetMin`·`budgetMax` | 원 | 0 이상 정수 문자열, bigint 최대 이하(그 이상 400). 경계 포함(`gte`·`lte`). 최소 > 최대 400(`fields.budgetMax`). Number로 바꾸지 않음 | D-51 |
+| 6 | `techStackIds` | 하나라도 포함(OR) | 쉼표로 구분한 ID(1~2147483647), 중복 제거, 최대 20개(초과 400). 없는 ID는 오류가 아니라 결과 0건 | 공유 링크의 오래된 ID |
+| 7 | `deadline` | 이 날짜까지 마감 | `recruit_end_date <= deadline`(KST 날짜, 당일 포함). 실제 없는 날짜 400 | D-32, D-41 |
+| 8 | `status` | 3개 공개 상태 | `SCHEDULED`·`RECRUITING`·`CLOSED`(거래 단계 포함)만. 7개 내부 상태 값은 400 | A-26 |
+| 9 | 필터 조합 | 미정 | 서로 다른 필터는 AND, 기술 스택끼리는 OR, 검색어 단어끼리는 AND | A-21 |
+| 10 | `sort` | `latest`·`deadline`·`budget` | 그 밖은 400. 같은 값이면 최신 등록순, 그래도 같으면 `id` 내림차순(페이지가 바뀌어도 순서 고정). **마감임박순**은 아직 모집 중·예정인 프로젝트를 마감일 가까운 순으로 먼저, 마감된 프로젝트는 그 뒤에 최근 마감순 | D-33, D-84(제안) |
+| 11 | `page`·`pagination` | 10개 고정 | `page` 1~100,000(그 밖 400). `pagination: { page, pageSize: 10, totalCount, totalPages }`. 범위를 넘는 페이지는 400이 아니라 200 + 빈 `data`(화면은 "마지막 페이지로" 안내). 결과 0건이면 `totalPages: 0` | 뒤로 가기·공유 링크로 오는 경우 |
+| 12 | 개수와 목록 일치 | 미정 | `count`와 `findMany`를 같은 조건으로 REPEATABLE READ 트랜잭션 하나에서 읽음 | 동시 등록·삭제 중 개수 불일치 방지 |
+| 13 | 쿼리 형식 | 미정 | 같은 이름을 여러 번 보내면 400. 알 수 없는 쿼리 이름은 무시. 오류는 400 `VALIDATION_ERROR` + `details.fields` | |
+| 14 | 응답 캐시 | 없음 | `Cache-Control: no-store`(라우터 공통) | 상태가 날짜에 따라 바뀜 |
+| 15 | PROF-06 `ids` | 없음 | `GET /tech-stacks?ids=1,5`(최대 20개)로 이름을 돌려줌. 주소에서 복원한 기술 스택 칩 이름 표시용. `q` 검색도 `%`·`_`를 글자로 찾도록 수정 | |
+
+- 화면 `/projects`(비로그인 가능): 검색어(300ms 지연), 카테고리·예산(500ms 지연)·기술 스택·마감일·모집 상태 필터, 정렬, 총 개수, 카드, 페이지 번호, 조건 초기화, 불러오는 중·오류(다시 시도)·빈 결과·범위 밖 페이지 안내. 모든 조건은 주소 쿼리에 있어 새로고침·뒤로 가기·공유 링크에서 복원된다. 조건이 바뀌면 1페이지로 돌아간다. 768px 이하에서는 필터를 "필터 펼치기" 버튼으로 접는다.
+- TanStack Query 키는 정규화한 조건(`['project-search', criteria]`)이라 늦게 도착한 이전 응답이 현재 결과를 덮지 않는다. 화면이 다시 그려지기 전에 조건이 연달아 바뀌어도(입력 지연 타이머와 클릭 등) 앞선 변경을 잃지 않는다.
+- 지원·북마크·계약·결제 버튼은 카드·상세에 없다(해당 기능 단계에서 추가).
 
 **SRCH-02 추천 프로젝트**
 - 응답 200: `{ data: ProjectSummary[] }` (최대 4개, 같은 카테고리 + 기술 스택 겹침 순, 모집 중만, 자기 자신 제외. D-30 제안)

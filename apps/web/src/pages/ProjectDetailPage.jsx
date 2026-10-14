@@ -18,6 +18,7 @@ function DeleteControl({ project }) {
     onSuccess: () => {
       queryClient.removeQueries({ queryKey: ['project', String(project.id)] });
       queryClient.invalidateQueries({ queryKey: ['my-projects'] });
+      queryClient.invalidateQueries({ queryKey: ['project-search'] });
       navigate('/me/projects', { replace: true, state: { notice: '프로젝트를 삭제했습니다.' } });
     },
   });
@@ -95,6 +96,8 @@ export function ProjectDetailPage() {
   }
 
   const data = project.data;
+  const from = location.state?.from;
+  const fromSearch = typeof from === 'string' && /^\/projects(\?|$)/.test(from);
   const category =
     options.data?.projectCategories.find((option) => option.value === data.category)?.label ??
     data.category;
@@ -102,6 +105,11 @@ export function ProjectDetailPage() {
 
   return (
     <article className="project-page">
+      <p className="project-detail__nav">
+        <Link to={fromSearch ? from : '/projects'}>
+          {fromSearch ? '← 검색 결과로 돌아가기' : '← 프로젝트 찾기'}
+        </Link>
+      </p>
       {notice && (
         <p className="form-success" role="status">
           {notice}

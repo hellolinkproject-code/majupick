@@ -35,8 +35,61 @@ export function toPublicStatus(status) {
 }
 
 /**
- * 날짜가 지난 프로젝트의 상태를 보정한다(D-08 조회 시 보정). 시작일이 된 모집 예정 → 모집 중,
+ * 저장된 상태에 날짜 경과를 반영한 지금의 상태(D-83). 조회는 DB를 바꾸지 않고 이 값을 보여 준다.
+ * syncRecruitStatuses가 저장할 결과와 같아야 하고, 검색 조건(publicStatusWhere)과도 같아야 한다.
+ */
+export function effectiveStatus(project, today) {
+  if (!OPEN_STATUSES.has(project.status)) return project.status;
+  if (fromDbDate(project.recruitEndDate) < today) return 'CLOSED';
+  const start = fromDbDate(project.recruitStartDate);
+  if (project.status === 'SCHEDULED' && start !== null && start <= today) return 'RECRUITING';
+  return project.status;
+}
+
+/** 외부 목록에 나오는 프로젝트: 삭제·취소 제외(A-26, PRJ-02와 같은 공개 범위). */
+export const PUBLIC_PROJECT_WHERE = Object.freeze({
+  deletedAt: null,
+  status: { not: 'CANCELLED' },
+});
+
+/**
+ * effectiveStatus 결과의 공개 상태가 publicStatus인 행만 고르는 Prisma 조건.
+ * @param {'SCHEDULED'|'RECRUITING'|'CLOSED'} publicStatus
+ * @param {Date} today KST 오늘(toDbDate 값)
+ */
+export function publicStatusWhere(publicStatus, today) {
+  const stillOpen = { status: { in: [...OPEN_STATUSES] }, recruitEndDate: { gte: today } };
+  if (publicStatus === 'SCHEDULED') {
+    return {
+      ...stillOpen,
+      status: 'SCHEDULED',
+      OR: [{ recruitStartDate: null }, { recruitStartDate: { gt: today } }],
+    };
+  }
+  if (publicStatus === 'RECRUITING') {
+    return {
+      ...stillOpen,
+      OR: [{ status: 'RECRUITING' }, { recruitStartDate: { lte: today } }],
+    };
+  }
+  return {
+    OR: [
+      { status: { notIn: [...OPEN_STATUSES, 'CANCELLED'] } },
+      { status: { in: [...OPEN_STATUSES] }, recruitEndDate: { lt: today } },
+    ],
+  };
+}
+
+/** 마감일이 오늘 이후라 아직 모집 예정·모집 중인 행(마감임박순 앞 구간). */
+export function stillOpenWhere(today) {
+  return { status: { in: [...OPEN_STATUSES] }, recruitEndDate: { gte: today } };
+}
+
+/**
+ * 날짜가 지난 프로젝트의 상태를 저장한다. 시작일이 된 모집 예정 → 모집 중,
  * 마감일이 지난 모집 예정·모집 중 → 모집 마감. 조건부 UPDATE라 여러 번 실행해도 결과가 같다.
+ * 조회(GET)에서는 부르지 않고 effectiveStatus로 계산한다(D-83). 수정·삭제처럼 행을 잠근 쓰기 요청과
+ * 이후의 주기 작업(D-08 cron, STAT-03)이 부른다.
  * applications 테이블을 추가하면 자동 마감 때 대기 지원 일괄 거절(A-34)을 이 함수에서 함께 처리해야 한다.
  * @param {object} db Prisma 클라이언트 또는 트랜잭션
  * @param {object} scope 대상 조건(예: { id }, { clientId })

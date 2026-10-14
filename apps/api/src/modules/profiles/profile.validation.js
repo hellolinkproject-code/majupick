@@ -11,6 +11,12 @@ export const CAREER_YEARS_MAX = 80;
 export const TECH_STACKS_MAX = 20;
 // PostgreSQL bigint 최대값. 정책 상한이 아니라 저장 가능한 범위다(D-42).
 export const BIGINT_MAX = 9223372036854775807n;
+const INTEGER_MAX = 2147483647;
+
+/** 쿼리 문자열의 ID 하나. PostgreSQL integer 범위의 양의 정수만 받는다(범위 밖 값이 DB 오류가 되지 않게). */
+export function isDbId(text) {
+  return /^\d{1,10}$/.test(text) && Number(text) >= 1 && Number(text) <= INTEGER_MAX;
+}
 
 function validationError(fields) {
   return new HttpError(400, 'VALIDATION_ERROR', '입력값을 확인해 주세요.', { fields });
@@ -182,10 +188,21 @@ export function validateTechStackName(body) {
   return { name, normalizedName: normalizeTechStackName(name) };
 }
 
-/** PROF-06 검색 조건. */
+/**
+ * PROF-06 검색 조건. `ids`(쉼표 구분, 최대 20개)를 주면 그 항목만 돌려준다.
+ * 검색 화면이 URL에 남은 기술 스택 ID의 이름을 다시 보여 줄 때 쓴다.
+ */
 export function parseTechStackQuery(query) {
   const q = typeof query?.q === 'string' ? query.q.trim().slice(0, TECH_STACK_NAME_MAX_LENGTH) : '';
   const requested = Number(query?.limit);
   const limit = Number.isInteger(requested) && requested >= 1 ? Math.min(requested, 100) : 20;
-  return { q, limit };
+  if (query?.ids === undefined) return { q, limit, ids: null };
+
+  const parts = typeof query.ids === 'string' ? query.ids.split(',').map((id) => id.trim()) : [];
+  const valid = parts.length > 0 && parts.every(isDbId);
+  const ids = valid ? [...new Set(parts.map(Number))] : [];
+  if (!valid || ids.length > TECH_STACKS_MAX) {
+    throw validationError({ ids: '기술 스택 ID 목록이 올바르지 않습니다.' });
+  }
+  return { q, limit, ids };
 }

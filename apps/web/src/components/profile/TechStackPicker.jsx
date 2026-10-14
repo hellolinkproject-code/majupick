@@ -1,17 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { parseApiError } from '../../lib/authApi.js';
 import { createTechStack, fetchTechStacks } from '../../lib/profileApi.js';
 import { normalizeTechStackName, PROFILE_LIMITS } from '../../lib/profileForm.js';
-
-function useDebouncedValue(value, delay) {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), delay);
-    return () => clearTimeout(timer);
-  }, [value, delay]);
-  return debounced;
-}
+import { useDebouncedValue } from '../../lib/useDebouncedValue.js';
 
 /**
  * 기술 스택 선택(PROF-06 검색, PROF-07 직접 추가). 같은 스택은 두 번 고를 수 없고,
