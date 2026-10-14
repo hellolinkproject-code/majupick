@@ -6,6 +6,7 @@ import { MyApplicationsPage } from '../pages/MyApplicationsPage.jsx';
 import { MyProfilePage } from '../pages/MyProfilePage.jsx';
 import { MyProjectsPage } from '../pages/MyProjectsPage.jsx';
 import { NotFoundPage } from '../pages/NotFoundPage.jsx';
+import { NotificationsPage } from '../pages/NotificationsPage.jsx';
 import { OAuthCompletePage } from '../pages/OAuthCompletePage.jsx';
 import { OAuthLinkPage } from '../pages/OAuthLinkPage.jsx';
 import { ProjectDetailPage } from '../pages/ProjectDetailPage.jsx';
@@ -36,6 +37,7 @@ export const routes = [
           { path: 'me', Component: MyProfilePage },
           { path: 'me/projects', Component: MyProjectsPage },
           { path: 'me/applications', Component: MyApplicationsPage },
+          { path: 'notifications', Component: NotificationsPage },
           { path: 'projects/new', Component: ProjectNewPage },
           { path: 'projects/:projectId/edit', Component: ProjectEditPage },
         ],

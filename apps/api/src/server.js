@@ -5,7 +5,13 @@ import { loadConfig } from './config/env.js';
 import { loadGoogleOAuthConfig } from './config/google.js';
 import { loadUploadConfig } from './config/uploads.js';
 import { createPrismaClient } from './db/client.js';
+import {
+  JobConfigError,
+  parseRecruitSyncInterval,
+  startRecruitStatusScheduler,
+} from './jobs/recruitStatusScheduler.js';
 import { createGoogleOAuthClient } from './modules/auth/googleOAuth.js';
+import { runRecruitStatusSync } from './modules/projects/projectClosure.js';
 import { createLocalImageStorage } from './modules/uploads/imageStorage.js';
 
 const config = loadConfig();
@@ -13,12 +19,20 @@ const config = loadConfig();
 let database;
 let authConfig;
 let googleConfig;
+let recruitSyncIntervalMs;
 try {
   database = getDatabaseConfig('development');
   authConfig = loadAuthConfig();
   googleConfig = loadGoogleOAuthConfig(process.env, { corsOrigins: config.corsOrigins });
+  recruitSyncIntervalMs = parseRecruitSyncInterval(process.env.RECRUIT_SYNC_INTERVAL_MS);
 } catch (error) {
-  if (!(error instanceof DatabaseConfigError) && !(error instanceof AuthConfigError)) throw error;
+  if (
+    !(error instanceof DatabaseConfigError) &&
+    !(error instanceof AuthConfigError) &&
+    !(error instanceof JobConfigError)
+  ) {
+    throw error;
+  }
   console.error(`[api] configuration error: ${error.message}`);
   process.exit(1);
 }
@@ -51,9 +65,23 @@ const server = app.listen(config.port, () => {
   console.log(`[api] database: ${describeDatabase(database)}`);
 });
 
+const recruitSync =
+  recruitSyncIntervalMs > 0
+    ? startRecruitStatusScheduler({
+        run: () => runRecruitStatusSync({ prisma }),
+        intervalMs: recruitSyncIntervalMs,
+      })
+    : null;
+console.log(
+  recruitSync
+    ? `[api] recruit status sync: on startup and every ${recruitSyncIntervalMs / 1000}s`
+    : '[api] recruit status sync: disabled (RECRUIT_SYNC_INTERVAL_MS=0). Run job:sync-project-status externally.',
+);
+
 function shutdown(signal) {
   console.log(`[api] ${signal} received, closing server`);
   server.close(async () => {
+    await recruitSync?.stop();
     await prisma.$disconnect();
     process.exit(0);
   });

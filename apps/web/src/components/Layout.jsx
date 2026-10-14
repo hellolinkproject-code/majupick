@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { logout, restoreSession } from '../lib/authApi.js';
 import { safeReturnTo } from '../lib/returnTo.js';
 import { useSessionStore } from '../stores/useSessionStore.js';
+import { NotificationBell } from './NotificationBell.jsx';
 
 // 역할 선택 전에는 인증 화면만 열고, 그 외에는 역할 선택으로 보낸다.
 const ROLE_EXEMPT = new Set(['/select-role', '/oauth/complete', '/oauth/link']);
@@ -40,6 +41,7 @@ function AuthNav() {
     } finally {
       setIsLoggingOut(false);
       queryClient.removeQueries({ queryKey: ['me'] });
+      queryClient.removeQueries({ queryKey: ['notifications'] });
       navigate('/', { replace: true });
     }
   }
@@ -54,6 +56,7 @@ function AuthNav() {
         </>
       )}
       {user.role === 'FREELANCER' && <Link to="/me/applications">내 지원 현황</Link>}
+      {user.role && <NotificationBell userId={user.id} />}
       <Link to="/me">내 프로필</Link>
       <button
         type="button"

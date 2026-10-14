@@ -98,6 +98,21 @@ export function createProjectsRouter({ prisma, authConfig, projectService }) {
     },
   );
 
+  /**
+   * STAT-01 수동 모집 마감. 확인 순서: 로그인(401) → 역할 선택 → 의뢰인(403) → 존재(404) → 소유자(403)
+   * → 실제 상태가 모집 중(409). 응답: { project, rejectedCount, notifiedCount }. 본문은 쓰지 않는다.
+   */
+  router.post(
+    '/:projectId/close',
+    guard.authenticate,
+    guard.requireRole,
+    onlyClient('마감'),
+    async (req, res) => {
+      const projectId = parseProjectId(req.params.projectId);
+      res.json({ data: await service.closeProject(req.auth.userId, projectId) });
+    },
+  );
+
   return router;
 }
 

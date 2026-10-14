@@ -1,6 +1,8 @@
 import { HttpError } from '../../utils/httpError.js';
 import { ACTIVE_APPLICATION_STATUSES } from '../applications/application.service.js';
+import { CLOSE_REASONS } from '../notifications/notificationEvents.js';
 import { DATE_MESSAGES, MY_PROJECTS_PAGE_SIZE } from './project.validation.js';
+import { closeLockedProject, syncLockedProject } from './projectClosure.js';
 import { buildSearchWhere, SEARCH_PAGE_SIZE, searchSegments } from './projectSearch.js';
 import {
   DELETABLE_STATUSES,
@@ -9,7 +11,6 @@ import {
   fromDbDate,
   initialRecruitStatus,
   PUBLIC_PROJECT_WHERE,
-  syncRecruitStatuses,
   toDbDate,
   todayKst,
   toPublicStatus,
@@ -75,11 +76,15 @@ function lockedFieldsOf(status, activeApplicantCount) {
   return [...fields];
 }
 
-/** 소유자에게만 7개 상태와 지금 할 수 있는 동작을 알려 FE가 버튼을 직접 계산하지 않게 한다. */
+/**
+ * 소유자에게만 7개 상태와 지금 할 수 있는 동작을 알려 FE가 버튼을 직접 계산하지 않게 한다.
+ * CLOSE(STAT-01)는 실제 상태가 모집 중일 때만 준다. 조회 응답은 withCurrentStatus를 거친 값이 들어온다.
+ */
 function ownerFields(project, activeApplicantCount = 0) {
   const availableActions = [];
   if (EDITABLE_STATUSES.has(project.status)) availableActions.push('EDIT');
   if (DELETABLE_STATUSES.has(project.status)) availableActions.push('DELETE');
+  if (project.status === 'RECRUITING') availableActions.push('CLOSE');
   return {
     status: project.status,
     availableActions,
@@ -174,11 +179,27 @@ const pagination = (page, pageSize, totalCount) => ({
 
 const now = () => new Date();
 
+const CLOSE_BLOCKED_MESSAGES = Object.freeze({
+  SCHEDULED: '모집이 시작되지 않은 프로젝트는 마감할 수 없습니다.',
+  CLOSED: '이미 모집이 마감된 프로젝트입니다.',
+  CANCELLED: '취소된 프로젝트는 마감할 수 없습니다.',
+});
+
+/** STAT-01을 할 수 없는 상태. 소유자에게 보내는 오류라 내부 상태를 알려 준다. */
+const notClosable = (status) =>
+  new HttpError(
+    409,
+    'INVALID_STATE_TRANSITION',
+    CLOSE_BLOCKED_MESSAGES[status] ?? '이미 지원자를 선정한 프로젝트는 모집을 마감할 수 없습니다.',
+    { currentStatus: status },
+  );
+
 /**
- * PRJ-01~05. 권한(로그인·역할·프로필)은 라우터 미들웨어가 먼저 확인하고,
+ * PRJ-01~05, STAT-01. 권한(로그인·역할·프로필)은 라우터 미들웨어가 먼저 확인하고,
  * 소유자·상태 확인은 프로젝트 행을 잠근 트랜잭션 안에서 한다.
+ * afterClose: 마감 트랜잭션 안에서 알림 ⑤를 만드는 함수(기본 notifyProjectClosed). 실패하면 마감 전체가 롤백된다.
  */
-export function createProjectService({ prisma }) {
+export function createProjectService({ prisma, afterClose }) {
   async function assertTechStacksExist(db, ids) {
     const found = await db.techStack.count({ where: { id: { in: ids } } });
     if (found !== ids.length) throw unknownTechStacks();
@@ -199,15 +220,18 @@ export function createProjectService({ prisma }) {
     return { project: toProjectDetail(project, clientId), created: false };
   }
 
-  /** 프로젝트 행을 잠그고 날짜 보정 후 다시 읽는다. 없거나 삭제됐으면 404, 남의 것이면 403. */
-  async function lockOwnedProject(tx, projectId, userId, action) {
+  /**
+   * 프로젝트 행을 잠그고 날짜 보정(시작·자동 마감 + 대기 지원 거절 + 알림 ⑤) 후 다시 읽는다.
+   * 없거나 삭제됐으면 404, 남의 것이면 403. 이후 요청이 실패하면 보정도 함께 롤백된다.
+   */
+  async function lockOwnedProject(tx, projectId, userId, action, at = now()) {
     const [row] = await tx.$queryRaw`
       SELECT client_id AS "clientId", deleted_at AS "deletedAt"
       FROM projects WHERE id = ${projectId} FOR UPDATE`;
     if (!row || row.deletedAt) throw notFound();
     if (row.clientId !== userId) throw notOwner(action);
-    await syncRecruitStatuses(tx, { id: projectId }, now());
-    return tx.project.findUnique({ where: { id: projectId } });
+    const { project } = await syncLockedProject(tx, projectId, { now: at, afterClose });
+    return project;
   }
 
   function lockedByStatus(project, action) {
@@ -397,6 +421,37 @@ export function createProjectService({ prisma }) {
           data: { status: 'REJECTED', rejectReason: 'PROJECT_DELETED', decidedAt: deletedAt },
         });
         await tx.project.update({ where: { id: projectId }, data: { deletedAt } });
+      });
+    },
+
+    /**
+     * STAT-01 수동 모집 마감(A-24). 실제 상태가 모집 중일 때만 가능하다. 한 트랜잭션에서
+     * 프로젝트 행 잠금 → 소유자·상태 확인 → CLOSED + closed_at → PENDING 지원 REJECTED(PROJECT_CLOSED)
+     * → 지원자 전원 알림 ⑤. 이미 마감·계약 단계·취소·모집 예정이면 409이고 아무것도 바꾸지 않는다.
+     * 같은 요청을 다시 보내면 두 번째는 '이미 마감' 409라 알림이 중복되지 않는다.
+     */
+    async closeProject(userId, projectId) {
+      return prisma.$transaction(async (tx) => {
+        const at = now();
+        const project = await lockOwnedProject(tx, projectId, userId, '마감', at);
+        const status = effectiveStatus(project, todayKst(at));
+        if (status !== 'RECRUITING') throw notClosable(project.status);
+        const result = await closeLockedProject(tx, project, {
+          now: at,
+          reason: CLOSE_REASONS.MANUAL,
+          afterClose,
+        });
+        const saved = await tx.project.findUnique({
+          where: { id: projectId },
+          include: projectInclude,
+        });
+        const counts = await countActiveApplications(tx, [projectId]);
+        return {
+          project: toProjectDetail(saved, userId, {
+            activeApplicantCount: counts.get(projectId) ?? 0,
+          }),
+          ...result,
+        };
       });
     },
 

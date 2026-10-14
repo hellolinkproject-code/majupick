@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApplicantsPanel } from '../components/application/ApplicantsPanel.jsx';
 import { ApplyPanel } from '../components/application/ApplyPanel.jsx';
+import { CloseRecruitControl } from '../components/project/CloseRecruitControl.jsx';
 import { NoticeCard, StatusBadge } from '../components/project/ProjectBits.jsx';
 import { parseApiError } from '../lib/authApi.js';
 import { fetchMetaOptions } from '../lib/profileApi.js';
@@ -67,12 +68,13 @@ function DeleteControl({ project }) {
 }
 
 /**
- * PRJ-02 프로젝트 상세. 소유자에게만 7개 상태·지원자 관리·수정·삭제를, 프리랜서에게는 지원 영역을 보여 준다.
+ * PRJ-02 프로젝트 상세. 소유자에게만 7개 상태·지원자 관리·모집 마감·수정·삭제를, 프리랜서에게는 지원 영역을 보여 준다.
  */
 export function ProjectDetailPage() {
   const { projectId } = useParams();
   const location = useLocation();
   const notice = useFlashNotice();
+  const [closeNotice, setCloseNotice] = useState(null);
   const sessionStatus = useSessionStore((state) => state.status);
   const viewerId = useSessionStore((state) => state.user?.id ?? null);
   const sessionSettled = sessionStatus !== 'idle' && sessionStatus !== 'restoring';
@@ -121,9 +123,9 @@ export function ProjectDetailPage() {
           {fromSearch ? '← 검색 결과로 돌아가기' : '← 프로젝트 찾기'}
         </Link>
       </p>
-      {notice && (
+      {(closeNotice ?? notice) && (
         <p className="form-success" role="status">
-          {notice}
+          {closeNotice ?? notice}
         </p>
       )}
       <header className="project-detail__header">
@@ -193,6 +195,9 @@ export function ProjectDetailPage() {
                 <Link to={`/projects/${data.id}/edit`} className="button">
                   수정
                 </Link>
+              )}
+              {actions.includes('CLOSE') && (
+                <CloseRecruitControl project={data} onClosed={setCloseNotice} />
               )}
               {actions.includes('DELETE') && <DeleteControl project={data} />}
             </div>

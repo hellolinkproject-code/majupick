@@ -1207,6 +1207,104 @@ a {
   font-size: 0.875rem;
 }
 
+.notification-bell {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  color: #374151;
+  border-radius: 999px;
+}
+
+.notification-bell:hover,
+.notification-bell:focus-visible {
+  color: #1d4ed8;
+  background: #eff6ff;
+}
+
+.notification-bell__badge {
+  position: absolute;
+  top: -0.125rem;
+  right: -0.25rem;
+  min-width: 1.125rem;
+  padding: 0 0.3rem;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1.125rem;
+  color: #fff;
+  text-align: center;
+  background: #dc2626;
+  border-radius: 999px;
+}
+
+.notification-list {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.notification-item__button {
+  display: grid;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0.875rem 1rem;
+  font: inherit;
+  color: #4b5563;
+  text-align: left;
+  cursor: pointer;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.notification-item__button:hover,
+.notification-item__button:focus-visible {
+  border-color: #93c5fd;
+}
+
+.notification-item--unread .notification-item__button {
+  color: #111827;
+  background: #f8fbff;
+  border-color: #bfdbfe;
+  box-shadow: inset 4px 0 0 #2563eb;
+}
+
+.notification-item__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.8125rem;
+  color: #6b7280;
+}
+
+.notification-item__unread {
+  font-weight: 700;
+  color: #1d4ed8;
+}
+
+.notification-item__title {
+  font-size: 1rem;
+}
+
+.notification-item--unread .notification-item__title {
+  font-weight: 700;
+}
+
+.notification-item:not(.notification-item--unread) .notification-item__title {
+  font-weight: 500;
+}
+
+.notification-item__message {
+  line-height: 1.5;
+}
+
 @media (max-width: 768px) {
   .search-page__body {
     grid-template-columns: 1fr;
@@ -1288,5 +1386,9 @@ a {
   .auth-card,
   .profile-card {
     padding: 1.25rem;
+  }
+
+  .notification-item__button {
+    padding: 0.75rem;
   }
 }

@@ -36,7 +36,7 @@ export function toPublicStatus(status) {
 
 /**
  * 저장된 상태에 날짜 경과를 반영한 지금의 상태(D-83). 조회는 DB를 바꾸지 않고 이 값을 보여 준다.
- * syncRecruitStatuses가 저장할 결과와 같아야 하고, 검색 조건(publicStatusWhere)과도 같아야 한다.
+ * 저장 시 동기화(projectClosure.js syncLockedProject)의 결과와 같아야 하고, 검색 조건(publicStatusWhere)과도 같아야 한다.
  */
 export function effectiveStatus(project, today) {
   if (!OPEN_STATUSES.has(project.status)) return project.status;
@@ -83,29 +83,4 @@ export function publicStatusWhere(publicStatus, today) {
 /** 마감일이 오늘 이후라 아직 모집 예정·모집 중인 행(마감임박순 앞 구간). */
 export function stillOpenWhere(today) {
   return { status: { in: [...OPEN_STATUSES] }, recruitEndDate: { gte: today } };
-}
-
-/**
- * 날짜가 지난 프로젝트의 상태를 저장한다. 시작일이 된 모집 예정 → 모집 중,
- * 마감일이 지난 모집 예정·모집 중 → 모집 마감. 조건부 UPDATE라 여러 번 실행해도 결과가 같다.
- * 조회(GET)에서는 부르지 않고 effectiveStatus로 계산한다(D-83). 수정·삭제처럼 행을 잠근 쓰기 요청과
- * 이후의 주기 작업(D-08 cron, STAT-03)이 부른다.
- * 자동 마감 때 대기 지원 일괄 거절(A-34)과 알림 ⑤는 STEP 06-C에서 추가한다. 그 전까지 이 함수가
- * CLOSED로 저장한 프로젝트에도 대기 지원이 남을 수 있으므로, 06-C 작업은 "실제 상태가 모집 중이 아닌
- * 프로젝트의 대기 지원"을 대상으로 잡아야 한다(DECISIONS D-94). 새 지원은 저장 상태와 관계없이
- * effectiveStatus로 막는다(applications/application.service.js assertRecruiting).
- * @param {object} db Prisma 클라이언트 또는 트랜잭션
- * @param {object} scope 대상 조건(예: { id }, { clientId })
- */
-export async function syncRecruitStatuses(db, scope, now = new Date()) {
-  const today = toDbDate(todayKst(now));
-  const active = { ...scope, deletedAt: null };
-  await db.project.updateMany({
-    where: { ...active, status: 'SCHEDULED', recruitStartDate: { lte: today } },
-    data: { status: 'RECRUITING' },
-  });
-  await db.project.updateMany({
-    where: { ...active, status: { in: [...OPEN_STATUSES] }, recruitEndDate: { lt: today } },
-    data: { status: 'CLOSED', closedAt: now },
-  });
 }

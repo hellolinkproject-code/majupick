@@ -104,7 +104,7 @@
 | `Contract` | `id, projectId, projectTitle, agreedAmount, durationDays, terms, parties{client, freelancer}, status, displayStatus, clientSignedAt, freelancerSignedAt, signedAt, workStartedAt, delivery{note, url, requestedAt}, completedAt, availableActions[]` |
 | `Payment` | `id, contractId, orderId, amount, status, method, paidAt, escrowStatus, feeAmount, payoutAmount, releasedAt` |
 | `Review` | `id, contractId, reviewer(요약), reviewee(요약), rating, content, tags[], createdAt` |
-| `Notification` | `id, type, message, linkUrl, isRead, readAt, createdAt` |
+| `Notification` | `id, type, title, message, linkUrl, projectId, applicationId, isRead, readAt, createdAt` (STEP 06-C 구현 기준, §10.1) |
 
 - `publicStatus`: 외부 노출용 3개 값 `SCHEDULED`, `RECRUITING`, `CLOSED`. 거래 단계(`CONTRACTING` 이후)는 `CLOSED`로 내려준다(A-26).
 - `availableActions`: 현재 사용자가 지금 할 수 있는 동작(`SIGN`, `PAY`, `REQUEST_DELIVERY`, `APPROVE`, `WRITE_REVIEW`, `CANCEL`). 버튼 표시를 FE가 직접 계산하지 않게 한다.
@@ -562,9 +562,9 @@
 | 5 | DEC 확인 순서 | 미정 | 로그인 401 → 역할 → 의뢰인 403 `FORBIDDEN` → 소유자(아니면 404, 존재를 숨김) → 프로젝트 유효(삭제 404) → 선정 가능 상태 409 → 지원이 그 프로젝트 소속(404) → `PENDING` 409 → (선정) 기존 선정 없음 409 → 본문 400 | D-95 |
 | 6 | 선정 가능 상태 | `RECRUITING` 확인 | 저장값이 아니라 `effectiveStatus`(D-83)가 `RECRUITING`일 때만. 마감일 당일 KST 23:59:59.999까지 가능, 다음 날 00:00부터 409. 저장값 `SCHEDULED`라도 시작일이 지났으면 가능. 마감 후 대기 지원은 06-C의 일괄 거절(A-34)에서 처리 | D-34(사용자가 RFP안 선택, 제안 유지), D-95 |
 | 7 | 409 `details` | `currentStatus` | 소유자에게만 보내는 오류라 내부 상태를 그대로 준다: 프로젝트 상태 문제는 `projectStatus`(`CANCELLED`·`CONTRACTING`·`IN_PROGRESS`·`COMPLETED`·`SCHEDULED`·`CLOSED`), 지원 상태 문제는 `applicationStatus`(`ACCEPTED`·`REJECTED`), 기존 선정은 `acceptedApplicationId` | D-95 |
-| 8 | DEC-01 처리 | 프로젝트 잠금 → 대상 `ACCEPTED` → 나머지 `REJECTED(OTHER_ACCEPTED)` → `CONTRACTING`·`closed_at` → 알림 | 같은 순서, 한 트랜잭션. 조건부 갱신(`WHERE status = 'PENDING'`)이라 이미 거절된 지원의 사유·`decided_at`은 바뀌지 않는다. `offer_status`는 없음(#4). 알림 ②③은 **미구현**(06-C, 위치는 `afterDecision` 훅) | D-54, D-98 |
+| 8 | DEC-01 처리 | 프로젝트 잠금 → 대상 `ACCEPTED` → 나머지 `REJECTED(OTHER_ACCEPTED)` → `CONTRACTING`·`closed_at` → 알림 | 같은 순서, 한 트랜잭션. 조건부 갱신(`WHERE status = 'PENDING'`)이라 이미 거절된 지원의 사유·`decided_at`은 바뀌지 않는다. `offer_status`는 없음(#4). 알림 ②③은 STEP 06-C에서 `afterDecision` 훅 기본값으로 구현(§10.1) | D-54, D-98 |
 | 9 | DEC-01 응답 | `{ data: { application, autoRejectedCount } }` | 같음. `application`은 소유자용 응답(#2 항목) | - |
-| 10 | DEC-02 처리 | `PENDING` → `REJECTED(MANUAL)` + 알림 ④ | 같음. 사유 입력은 받지 않는다(D-49 `MANUAL` 고정). 다른 지원과 프로젝트 상태는 바꾸지 않는다. 선정된 지원 거절 409, 같은 지원 다시 거절 409. 알림 ④ **미구현**(06-C) | D-49, D-98 |
+| 10 | DEC-02 처리 | `PENDING` → `REJECTED(MANUAL)` + 알림 ④ | 같음. 사유 입력은 받지 않는다(D-49 `MANUAL` 고정). 다른 지원과 프로젝트 상태는 바꾸지 않는다. 선정된 지원 거절 409, 같은 지원 다시 거절 409. 알림 ④는 STEP 06-C에서 구현(§10.1) | D-49, D-98 |
 | 11 | 동시성 | "동시 수락 경합 409" | 프로젝트 행 `FOR UPDATE` 후 판단. 같은 프로젝트의 두 지원 동시 선정 → 200 1건 + 409 1건, 5건 동시 → 선정 1·거절 4. 선정과 지원(APP-01 `FOR SHARE`)이 겹치면 대기 지원이 남지 않는다. 잠금을 거치지 않는 쓰기가 생겨도 부분 UNIQUE 인덱스(프로젝트당 `ACCEPTED` 1건)가 막고, 위반(P2002)은 409로 바꾼다 | D-54, ERD_v1 §7.7 |
 | 12 | 선정 후 | A-25 `CONTRACTING` | 새 지원 409, 다른 지원 선정·거절 409, 예산·마감일 등 수정 409 `FIELD_LOCKED`, 삭제 409, 공개 상태 `CLOSED`(검색·상세). 프로젝트 저장 상태는 `CONTRACTING`만 사용(새 상태 없음) | A-25, A-26, D-03 |
 | 13 | 응답 캐시·GET | - | 모든 API `Cache-Control: no-store`. APP-02·APP-03은 DB를 바꾸지 않는다(D-83) | D-83 |
@@ -579,9 +579,9 @@
 
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
-| STAT-01 | POST | `/projects/:projectId/close` | 소유자 | A-24, A-34, A-36⑤ | 설계 |
+| STAT-01 | POST | `/projects/:projectId/close` | 소유자 | A-24, A-34, A-36⑤ | 구현(STEP 06-C, §9.1) |
 | STAT-02 | POST | `/projects/:projectId/cancel` | 소유자 | A-27, D-13 | 설계 |
-| STAT-03 | POST | `/internal/jobs/sync-project-status` | 내부 키(헤더 `X-Job-Secret`) | A-24, A-34, D-08 | 설계(선택) |
+| STAT-03 | POST | `/internal/jobs/sync-project-status` | 내부 키(헤더 `X-Job-Secret`) | A-24, A-34, D-08 | 미구현(선택). 같은 작업을 서버 내부 주기 실행과 CLI 스크립트로 제공(§9.1 #6~7) |
 
 **STAT-01 수동 모집 마감**
 - 처리(한 트랜잭션): `RECRUITING` → `CLOSED`, 대기 지원 일괄 `REJECTED(PROJECT_CLOSED)`, 지원자 전원 알림 ⑤
@@ -599,21 +599,56 @@
 - 응답 200: `{ data: { started, closed, rejectedApplications } }`. 같은 시점에 두 번 호출해도 결과가 같다
 - 오류: 401(키 불일치)
 
+### 9.1 STEP 06-C 구현 내용과 명세 대비 차이 (STAT-01, 자동 마감)
+
+구현: `apps/api/src/modules/projects/projectClosure.js`(`closeLockedProject`·`syncLockedProject`·`runRecruitStatusSync`), `project.service.js`의 `closeProject`, `projects.router.js`, `apps/api/src/jobs/recruitStatusScheduler.js`, `apps/api/scripts/sync-project-status.js`. 화면: `apps/web/src/components/project/CloseRecruitControl.jsx`(내 프로젝트 목록·프로젝트 상세 "프로젝트 관리"). 테스트: `apps/api/test/db/notifications.integration.test.js`, `apps/api/test/notification.unit.test.js`, `apps/web/src/app/notifications.test.jsx`. 새 결정은 모두 제안(D-99~D-104)이다.
+
+| # | 항목 | 명세 | 구현 | 근거 |
+|---|---|---|---|---|
+| 1 | STAT-01 확인 순서 | 403, 404, 409 | 로그인 401 → 역할 `ROLE_REQUIRED` → 의뢰인 403 `FORBIDDEN` → 없음·삭제 404 → 남의 프로젝트 403 → 실제 상태(`effectiveStatus`)가 `RECRUITING`이 아니면 409 `INVALID_STATE_TRANSITION`(`details.currentStatus`). 문구: 모집 예정 "모집이 시작되지 않은 프로젝트는 마감할 수 없습니다.", 이미 마감(저장값 또는 마감일 경과) "이미 모집이 마감된 프로젝트입니다.", 계약 단계 "이미 지원자를 선정한 프로젝트는 모집을 마감할 수 없습니다.", 취소 "취소된 프로젝트는 마감할 수 없습니다." 본문은 쓰지 않는다 | PRJ-03·04와 같은 소유자 규칙, D-100 |
+| 2 | STAT-01 처리 | 한 트랜잭션 | 프로젝트 행 `FOR UPDATE` → 확인 → `CLOSED` + `closed_at` → `PENDING` 지원 전부 `REJECTED(PROJECT_CLOSED)` + `decided_at`(= `closed_at`) → 지원자 전원 알림 ⑤. 이미 `REJECTED`인 지원은 사유·시각을 바꾸지 않고 알림만 받는다. `ACCEPTED`는 있을 수 없고(선정 시 `CONTRACTING`) 조건에도 걸리지 않는다. 지원자 0명도 200. 알림 저장이 실패하면 전체 롤백 | A-24, A-34, D-94, D-101 |
+| 3 | STAT-01 응답 | `{ project, rejectedCount }` | `{ data: { project(소유자용 ProjectDetail), rejectedCount, notifiedCount } }`. 같은 요청을 다시 보내면 409("이미 마감")라 알림이 중복되지 않는다 | - |
+| 4 | 소유자 `availableActions` | - | 실제 상태가 `RECRUITING`이면 `CLOSE`를 추가한다(`['EDIT','DELETE','CLOSE']`). 모집 예정·마감·계약 단계·취소에는 없다 | D-100 |
+| 5 | 자동 마감 처리 | cron + STAT-03 | 프로젝트마다 별도 트랜잭션: `FOR UPDATE` → 다시 판단 → 시작일 도래 `SCHEDULED → RECRUITING`, 마감일 경과 `SCHEDULED/RECRUITING → CLOSED` + #2와 같은 일괄 거절·알림 ⑤(문구만 "모집 기간이 끝나"). 06-C 이전에 `CLOSED`로만 저장되고 대기 지원이 남은 프로젝트도 같은 방식으로 정리(`closed_at`은 그대로). 계약 단계·취소·삭제 프로젝트는 대상이 아니다. 한 프로젝트가 실패하면 그 프로젝트만 롤백되고 다음 실행에서 다시 시도 | A-24, A-34, D-36, D-94 |
+| 6 | 실행 방식 | 서버 내부 cron(D-08 node-cron) + STAT-03 | 새 의존성 없이 API 프로세스 안에서 **시작 직후 1회(재시작 따라잡기) + `RECRUIT_SYNC_INTERVAL_MS`마다(기본 60초, `0`이면 끔, 5초~24시간)**. 이전 실행이 끝나지 않았으면 그 차례는 건너뛴다. 바뀐 것이 있거나 실패했을 때만 로그 | D-99 |
+| 7 | 외부 실행 | STAT-03 HTTP | HTTP 엔드포인트 대신 CLI `npm run job:sync-project-status -w apps/api`(`--target=test` 가능). 결과 JSON 출력, 실패 프로젝트가 있으면 종료 코드 1. 배포 시 플랫폼 예약 작업·cron이 이 명령을 부르게 한다. **운영 스케줄러는 아직 설치되지 않았다** | D-99 |
+| 8 | 날짜 경계 | KST | 마감일 당일 23:59:59.999(KST)까지 모집 중, 다음 날 00:00(KST)부터 마감. 시작일 00:00(KST)부터 모집 중. 실제 반영은 경계 후 최대 한 주기 늦을 수 있으나, 그동안에도 조회·검색은 날짜로 계산한 상태를 보여 주고 새 지원·선정·거절은 409로 막는다 | D-41, D-83 |
+| 9 | 동시성 | - | 지원(`FOR SHARE`)·선정·거절·수정·삭제·마감(`FOR UPDATE`)이 모두 프로젝트 행을 먼저 잠근다. 수동 마감 vs 새 지원: 대기 지원이 남지 않는다. 마감 vs 선정: 한쪽만 성공. 주기 작업 두 개 동시 실행·서버 여러 대: 프로젝트별 잠금 + 조건부 갱신 + 알림 `event_key` UNIQUE로 한 번만 반영 | D-54, D-102 |
+| 10 | 수정·삭제 전 동기화 | - | PRJ-03·04가 행을 잠근 뒤 같은 동기화(#5)를 먼저 한다. 따라서 마감일이 지난 프로젝트를 삭제하면 대기 지원은 `PROJECT_DELETED`가 아니라 `PROJECT_CLOSED`(+ 알림 ⑤)가 된다. 요청이 실패하면 동기화도 롤백된다 | D-83, D-94 |
+
 ---
 
 ## 10. 알림 (NOTI)
 
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
-| NOTI-01 | GET | `/notifications` | 로그인 | A-36, A-38 | 설계 |
-| NOTI-02 | GET | `/notifications/unread-count` | 로그인 | A-37 | 설계 |
-| NOTI-03 | PATCH | `/notifications/:notificationId/read` | 수신자 | A-37 | 설계 |
-| NOTI-04 | PATCH | `/notifications/read-all` | 로그인 | A-38 | 설계 |
+| NOTI-01 | GET | `/notifications` | 로그인 | A-36, A-38 | 구현(STEP 06-C, §10.1) |
+| NOTI-02 | GET | `/notifications/unread-count` | 로그인 | A-37 | 구현(STEP 06-C) |
+| NOTI-03 | PATCH | `/notifications/:notificationId/read` | 수신자 | A-37 | 구현(STEP 06-C) |
+| NOTI-04 | PATCH | `/notifications/read-all` | 로그인 | A-38 | 구현(STEP 06-C) |
 
 - NOTI-01: 쿼리 `unreadOnly`(선택), `page` → `{ data: Notification[], pagination }`
 - NOTI-02: `{ data: { count } }`. FE가 30초마다 호출(D-37 제안)
 - NOTI-03: 응답 200 `{ data: Notification }`. 이미 읽은 알림이어도 200(멱등). 오류 404
 - NOTI-04: 응답 200 `{ data: { updatedCount } }`
+
+### 10.1 STEP 06-C 구현 내용과 명세 대비 차이 (NOTI-01~04, 알림 5종)
+
+구현: `apps/api/src/modules/notifications/`(`notificationEvents.js` 문구·이동 경로·중복 키·저장, `notification.service.js`, `notifications.router.js`). 화면: `apps/web/src/components/NotificationBell.jsx`(머리글), `pages/NotificationsPage.jsx`(`/notifications`), `lib/notificationApi.js`, `lib/notificationLinks.js`. 마이그레이션 1개(ERD_v1 §7.8).
+
+| # | 항목 | 명세 | 구현 | 근거 |
+|---|---|---|---|---|
+| 1 | 알림 5종과 연결 | A-36 ①~⑤ | ① 지원(APP-01) → 의뢰인, ② 선정(DEC-01) → 선정 프리랜서, ③ 다른 지원자 선정으로 자동 거절(DEC-01) → 각 프리랜서, ④ 직접 거절(DEC-02) → 해당 프리랜서, ⑤ 모집 마감(STAT-01 수동·자동) → 그 프로젝트 지원자 전원(대기였던 지원 + 이전에 거절된 지원). ①은 `afterApply`, ②③④는 06-B의 `afterDecision` 훅 기본값, ⑤는 `closeLockedProject`의 `afterClose`. 모두 상태 변경과 같은 트랜잭션이며 실제로 바뀐 지원에만 보낸다 | D-36, D-94, D-98 |
+| 2 | 원자성 | - | 알림 저장 실패(DB 거부 포함) 시 지원·선정·자동 거절·직접 거절·마감·프로젝트 상태가 모두 롤백된다. 화면은 서버 200을 받은 뒤에만 결과를 보여 준다 | D-94 |
+| 3 | 중복 방지 | - | `event_key` UNIQUE(`{TYPE}:application:{applicationId}`). 저장은 `ON CONFLICT DO NOTHING`. 같은 지원의 같은 유형 알림은 재시도·동시 실행에도 1건 | D-103 |
+| 4 | `Notification` 객체 | `id, type, message, linkUrl, isRead, readAt, createdAt` | 같음 + `title`, `projectId`, `applicationId`. `linkUrl`은 허용 목록(`/projects/{id}`, `/projects/{id}#applicants`, `/me/applications`, `/me/projects`)을 통과한 값만, 아니면 `null`. 지원 내용·금액·이메일·토큰은 저장도 응답도 하지 않는다 | D-104 |
+| 5 | 이동 경로 | D-36(② 계약서 상세) | ① `/projects/{id}#applicants`(지원자 관리), ②③④⑤ `/me/applications`. ②는 계약 화면이 아직 없어 내 지원 현황으로 보낸다(계약 단계에서 바꾼다) | D-36, D-104 |
+| 6 | NOTI-01 | `unreadOnly`, `page` | 20개씩, `created_at DESC, id DESC`(같은 시각도 순서 고정). 응답에 `unreadCount`를 함께 준다. 개수·목록은 REPEATABLE READ 한 스냅샷. `unreadOnly`는 `true`/`false`만(그 밖 400), 잘못된 `page` 400. **조회는 읽음 처리하지 않는다** | D-83 |
+| 7 | NOTI-03 | 수신자, 404 | 본인 알림만. 남의 알림·없는 알림·잘못된 ID 모두 404(존재를 숨김). 이미 읽은 알림은 처음 읽은 시각을 유지하고 200 | - |
+| 8 | NOTI-04 | `{ updatedCount }` | 이번에 바뀐 개수(다시 보내면 0). 남의 알림은 바뀌지 않는다 | - |
+| 9 | 권한 | 로그인 | 로그인 401 → 역할 `ROLE_REQUIRED`. 모든 응답 `Cache-Control: no-store` | §1.3 |
+| 10 | 새로 고침 | 30초 폴링(D-37) | 머리글 개수를 30초마다와 창으로 돌아올 때 다시 받는다. 알림 화면 목록도 30초 폴링. WebSocket 없음 → 새 알림은 최대 약 30초 늦게 보인다. 캐시 키에 사용자 ID를 넣고 로그아웃 시 알림 캐시를 지운다 | D-37 |
+| 11 | 보관 | - | 삭제·만료 없이 보관(읽음 여부와 관계없이). 정리 정책은 미정 | D-104 |
 
 ---
 

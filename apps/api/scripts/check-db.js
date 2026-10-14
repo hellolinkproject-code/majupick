@@ -8,9 +8,11 @@ import {
 } from '../src/config/database.js';
 
 const EXPECTED_TABLES = [
+  'applications',
   'client_profiles',
   'freelancer_profiles',
   'freelancer_tech_stacks',
+  'notifications',
   'oauth_transactions',
   'project_tech_stacks',
   'projects',

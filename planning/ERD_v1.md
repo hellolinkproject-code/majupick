@@ -483,6 +483,7 @@ erDiagram
 
 - 인덱스 `(user_id, created_at DESC)`: 알림 목록
 - 부분 인덱스 `(user_id) WHERE read_at IS NULL`: 헤더 미확인 수(A-37)
+- STEP 06-C 구현에서 `title`, `project_id`, `application_id`, `event_key`(UNIQUE), `link_url` CHECK를 더했다(§7.8, D-103·D-104 제안).
 
 ### 3.13 bookmarks
 
@@ -651,6 +652,22 @@ erDiagram
 | 적용 | 적용 전 두 DB 모두 프로젝트당 `ACCEPTED` 2건 이상인 행이 없음을 확인 → `prisma migrate diff`로 SQL 생성·검토 → `workbridge_dev`(`db:migrate:deploy`), `workbridge_test`(`db:migrate:test`) → `db:generate`. `migrate dev`·`reset`·`push`는 쓰지 않았다. 개발 DB 사용자 8·프로젝트 2·지원 0·Google 연결 1 그대로 |
 | 검증 | `prisma migrate diff --from-migrations --to-schema --exit-code`: 차이 없음. DB 테스트(`applicationDecisions.integration.test.js`)가 `pg_indexes`에서 인덱스 정의(`UNIQUE … WHERE status = 'ACCEPTED'`)를 확인하고, 트랜잭션을 거치지 않고 두 번째 `ACCEPTED`를 직접 쓰면 P2002로 거부되는지 확인 |
 | 아직 만들지 않은 것 | `offer_amount`·`offer_status`·`offered_at`·`offer_responded_at`과 CHECK "수락이면 제안 금액 필수". 합의 금액은 계약 단계에서 다루므로(D-97) 그때 NULL 허용 컬럼으로 추가한다. `notifications` 테이블은 06-C(D-98) |
+
+### 7.8 STEP 06-C 인앱 알림 (2026-10-14)
+
+| 항목 | 내용 |
+|---|---|
+| 마이그레이션 | `apps/api/prisma/migrations/20261014180000_notifications/migration.sql` |
+| 추가 | enum `notification_type`(§3.12 5개 값: `APPLICATION_SUBMITTED`·`APPLICATION_ACCEPTED`·`APPLICATION_AUTO_REJECTED`·`APPLICATION_REJECTED`·`PROJECT_CLOSED`), 테이블 `notifications`, 인덱스 5개, FK 3개, CHECK 1개 |
+| 컬럼 | `id`, `user_id`(수신자), `type`, `project_id`(NULL 허용), `application_id`(NULL 허용), `title varchar(100)`, `message varchar(255)`, `link_url varchar(255)`, `event_key varchar(120)`, `read_at timestamptz(3)`(NULL = 안 읽음), `created_at timestamptz(3)` |
+| §3.12 대비 추가 | `title`(목록 제목), `project_id`·`application_id`(어느 프로젝트·지원의 알림인지, 지금 5종은 모두 값이 있고 이후 선택 알림을 위해 NULL 허용), `event_key` UNIQUE(중복 방지, D-103), `link_url` CHECK(내부 경로만, D-104) |
+| 외래키 | `user_id → users.id`, `project_id → projects.id`, `application_id → applications.id` 모두 `ON DELETE CASCADE`(§3.12의 사용자 CASCADE와 같은 방향). 앱은 프로젝트를 소프트 삭제하므로 알림이 지워지는 경우는 사용자 행 삭제뿐이다 |
+| UNIQUE | `notifications_event_key_key (event_key)`. 키 형식 `{TYPE}:application:{applicationId}` — 같은 지원의 같은 유형 알림은 한 번만(재시도·동시 실행·주기 작업 겹침 포함). 저장은 `ON CONFLICT DO NOTHING` |
+| CHECK (SQL 수동 추가) | `notifications_link_url_internal`: `link_url ~ '^/[A-Za-z0-9/_#?=&-]*$' AND link_url NOT LIKE '//%'`(외부 URL·`//`·`\`·스킴 저장 불가). 서버는 저장 전에 더 좁은 허용 목록으로 다시 검사한다 |
+| 인덱스 | `(user_id, created_at DESC, id DESC)`(목록, 같은 시각 순서 고정), 부분 `(user_id) WHERE read_at IS NULL`(머리글 미확인 수, A-37), `(project_id)`, `(application_id)`(FK 삭제·조회) |
+| 바꾸지 않은 것 | 기존 테이블·컬럼·enum·제약·행. `DROP`·`TRUNCATE`·`UPDATE`·`DELETE` 없음. 06-C 이전에 생긴 지원·선정·거절에 대한 알림은 소급 생성하지 않는다(D-94) |
+| 적용 | `prisma migrate diff`로 SQL을 만들어 검토 후 CHECK를 더함 → 적용 전 개발 DB 지문(행 수 + 내용 해시) 기록 → `workbridge_dev`(`db:migrate:deploy`), `workbridge_test`(`db:migrate:test`) → `db:generate`. `migrate dev`·`reset`·`push`는 쓰지 않았다. 개발 DB 사용자 8·프로젝트 2·지원 0·Google 연결 1과 내용 해시가 그대로 |
+| 검증 | `prisma migrate diff --from-migrations --to-schema --exit-code`: 차이 없음. DB 테스트(`notifications.integration.test.js`)가 `event_key` 중복(P2002)과 외부·`//`·`javascript:`·`\` 링크 저장 거부를 확인 |
 
 ### 7.2 설계와 다른 점과 이유
 

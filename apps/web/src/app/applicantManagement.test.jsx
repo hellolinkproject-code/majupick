@@ -391,7 +391,7 @@ describe('applicant management on the project detail (owner)', () => {
         ),
     });
     expect(
-      await screen.findByText('모집 기간이 끝나 지원자를 선정하거나 거절할 수 없습니다.'),
+      await screen.findByText('모집이 마감되어 지원자를 선정하거나 거절할 수 없습니다.'),
     ).toBeTruthy();
     expect(screen.queryByRole('button', { name: '정지원 선정' })).toBeNull();
 

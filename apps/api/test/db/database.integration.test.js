@@ -10,6 +10,7 @@ const EXPECTED_TABLES = [
   'client_profiles',
   'freelancer_profiles',
   'freelancer_tech_stacks',
+  'notifications',
   'oauth_transactions',
   'project_tech_stacks',
   'projects',

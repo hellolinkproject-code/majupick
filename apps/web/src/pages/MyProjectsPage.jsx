@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
+import { CloseRecruitControl } from '../components/project/CloseRecruitControl.jsx';
 import { NoticeCard, StatusBadge } from '../components/project/ProjectBits.jsx';
 import { parseApiError } from '../lib/authApi.js';
 import { formatWon } from '../lib/profileForm.js';
@@ -17,6 +19,7 @@ function pageFrom(searchParams) {
 export function MyProjectsPage() {
   const role = useSessionStore((state) => state.user?.role);
   const notice = useFlashNotice();
+  const [closeNotice, setCloseNotice] = useState(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const page = pageFrom(searchParams);
   const list = useQuery({
@@ -83,6 +86,11 @@ export function MyProjectsPage() {
                   지원자 {project.applicantCount}명 관리
                 </Link>
               </p>
+              {project.availableActions?.includes('CLOSE') && (
+                <div className="funnel-actions funnel-actions--start">
+                  <CloseRecruitControl project={project} onClosed={setCloseNotice} />
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -119,9 +127,9 @@ export function MyProjectsPage() {
           새 프로젝트 등록
         </Link>
       </div>
-      {notice && (
+      {(closeNotice ?? notice) && (
         <p className="form-success" role="status">
-          {notice}
+          {closeNotice ?? notice}
         </p>
       )}
       {body}

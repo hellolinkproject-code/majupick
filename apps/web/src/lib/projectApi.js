@@ -46,6 +46,12 @@ export async function deleteProject(projectId) {
   await apiClient.delete(`/projects/${projectId}`);
 }
 
+/** STAT-01 수동 모집 마감. 응답: { project, rejectedCount, notifiedCount }. */
+export async function closeProject(projectId) {
+  const res = await apiClient.post(`/projects/${projectId}/close`);
+  return res.data.data;
+}
+
 /** PRJ-05 내 프로젝트(페이지당 10개). */
 export async function fetchMyProjects(page = 1) {
   const res = await apiClient.get('/me/projects', { params: { page } });

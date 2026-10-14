@@ -254,4 +254,16 @@ describe('toProjectDetail', () => {
     expect(visitor).not.toHaveProperty('availableActions');
     expect(toProjectDetail({ ...row, status: 'CONTRACTING' }, 10).availableActions).toEqual([]);
   });
+
+  it('offers the manual close (STAT-01) only while recruiting', () => {
+    expect(toProjectDetail({ ...row, status: 'RECRUITING' }, 10).availableActions).toEqual([
+      'EDIT',
+      'DELETE',
+      'CLOSE',
+    ]);
+    expect(toProjectDetail({ ...row, status: 'SCHEDULED' }, 10).availableActions).toEqual([
+      'EDIT',
+      'DELETE',
+    ]);
+  });
 });

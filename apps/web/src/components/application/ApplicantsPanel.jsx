@@ -24,7 +24,7 @@ const FILTERS = [
 
 const CLOSED_NOTICES = {
   SCHEDULED: '모집 시작 전이라 아직 선정하거나 거절할 수 없습니다.',
-  CLOSED: '모집 기간이 끝나 지원자를 선정하거나 거절할 수 없습니다.',
+  CLOSED: '모집이 마감되어 지원자를 선정하거나 거절할 수 없습니다.',
   CANCELLED: '취소된 프로젝트라 지원자를 선정하거나 거절할 수 없습니다.',
 };
 

@@ -74,6 +74,17 @@ enum RejectReason {
   @@map("reject_reason")
 }
 
+/// RFP 3.3.1 필수 알림 5종(ERD §3.12)
+enum NotificationType {
+  APPLICATION_SUBMITTED
+  APPLICATION_ACCEPTED
+  APPLICATION_AUTO_REJECTED
+  APPLICATION_REJECTED
+  PROJECT_CLOSED
+
+  @@map("notification_type")
+}
+
 /// 제안(D-59)
 enum ProjectCategory {
   WEB
@@ -127,6 +138,7 @@ model User {
   projects          Project[]
   applications      Application[]
   createdTechStacks TechStack[]
+  notifications     Notification[]
 
   @@map("users")
 }
@@ -290,9 +302,10 @@ model Project {
   createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client       User               @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  techStacks   ProjectTechStack[]
-  applications Application[]
+  client        User               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  techStacks    ProjectTechStack[]
+  applications  Application[]
+  notifications Notification[]
 
   @@unique([clientId, idempotencyKey])
   @@index([status, recruitEndDate], map: "projects_status_recruit_end_date_active_idx", where: raw("deleted_at IS NULL"))
@@ -328,8 +341,9 @@ model Application {
   createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  project    Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
-  freelancer User    @relation(fields: [freelancerId], references: [id], onDelete: Restrict)
+  project       Project        @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  freelancer    User           @relation(fields: [freelancerId], references: [id], onDelete: Restrict)
+  notifications Notification[]
 
   @@unique([projectId, freelancerId])
   /// 프로젝트당 선정(ACCEPTED) 1건(A-33). 수락 트랜잭션의 행 잠금이 뚫려도 DB가 막는다
@@ -337,4 +351,36 @@ model Application {
   @@index([projectId, status])
   @@index([freelancerId, createdAt(sort: Desc)])
   @@map("applications")
+}
+
+// ---------------------------------------------------------------------------
+// 인앱 알림 (STEP 06-C, RFP 3.3.1의 5종). 제목·문구는 발생 시점의 스냅샷이라
+// 이후 프로젝트 상태가 바뀌어도 의미가 유지된다. 지원 내용·연락처는 담지 않는다.
+// ---------------------------------------------------------------------------
+
+model Notification {
+  id            Int              @id @default(autoincrement())
+  /// 받는 사람
+  userId        Int              @map("user_id")
+  type          NotificationType
+  projectId     Int?             @map("project_id")
+  applicationId Int?             @map("application_id")
+  title         String           @db.VarChar(100)
+  message       String           @db.VarChar(255)
+  /// 서비스 내부 경로만(CHECK). 외부 URL은 저장하지 않는다
+  linkUrl       String           @map("link_url") @db.VarChar(255)
+  /// 같은 이벤트의 중복 생성을 막는 키(예: APPLICATION_SUBMITTED:application:12)
+  eventKey      String           @unique @map("event_key") @db.VarChar(120)
+  readAt        DateTime?        @map("read_at") @db.Timestamptz(3)
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project     Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  application Application? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([userId], map: "notifications_user_id_unread_idx", where: raw("read_at IS NULL"))
+  @@index([projectId])
+  @@index([applicationId])
+  @@map("notifications")
 }

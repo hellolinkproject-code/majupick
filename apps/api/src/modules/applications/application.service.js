@@ -1,4 +1,5 @@
 import { HttpError } from '../../utils/httpError.js';
+import { notifyApplicationSubmitted, notifyDecision } from '../notifications/notificationEvents.js';
 import { publicUserSelect, toPublicUser } from '../users/publicUser.js';
 import {
   effectiveStatus,
@@ -160,6 +161,13 @@ export function assertPending(application, action) {
   throw invalidTransition(message, { applicationStatus: application.status });
 }
 
+/** 알림 문구·수신자 계산에 쓰는 프로젝트 요약(잠근 뒤 읽은 값). */
+const projectSummary = (project) => ({
+  id: project.id,
+  title: project.title,
+  clientId: project.clientId,
+});
+
 const pagination = (page, pageSize, totalCount) => ({
   page,
   pageSize,
@@ -174,14 +182,16 @@ const pagination = (page, pageSize, totalCount) => ({
  * @param {{
  *   prisma: object,
  *   clock?: () => Date,
- *   afterDecision?: (tx: object, event: object) => Promise<void>,
- * }} deps clock은 날짜 경계 테스트용. afterDecision은 선정·거절 트랜잭션 안에서 상태 변경 직후
- *   호출된다(STEP 06-C 알림 ②③④ 생성 위치). 여기서 오류가 나면 선정·자동 거절·프로젝트 상태가 모두 롤백된다.
+ *   afterApply?: (tx: object, event: object) => Promise<unknown>,
+ *   afterDecision?: (tx: object, event: object) => Promise<unknown>,
+ * }} deps clock은 날짜 경계 테스트용. afterApply(알림 ①)·afterDecision(알림 ②③④)은 상태 변경과 같은
+ *   트랜잭션 안에서 호출된다. 여기서 오류가 나면 지원·선정·자동 거절·프로젝트 상태가 모두 롤백된다.
  */
 export function createApplicationService({
   prisma,
   clock = () => new Date(),
-  afterDecision = async () => {},
+  afterApply = notifyApplicationSubmitted,
+  afterDecision = notifyDecision,
 }) {
   /**
    * 선정·거절 공통 확인(D-95 순서). 로그인·역할·의뢰인은 라우터가 확인했다.
@@ -245,10 +255,13 @@ export function createApplicationService({
             throw new HttpError(400, 'VALIDATION_ERROR', '입력값을 확인해 주세요.', { fields });
           }
 
-          // STEP 06-C: 의뢰인 알림 ①(A-36)을 이 트랜잭션 안에서 함께 만든다.
           const application = await tx.application.create({
             data: { projectId, freelancerId, ...input },
             include: applicationInclude,
+          });
+          await afterApply(tx, {
+            project: projectSummary(project),
+            application: { id: application.id, freelancerId },
           });
           return { application, today };
         });
@@ -406,6 +419,7 @@ export function createApplicationService({
           await afterDecision(tx, {
             type: 'ACCEPTED',
             projectId: project.id,
+            project: projectSummary(project),
             application: { id: application.id, freelancerId: application.freelancerId },
             autoRejected,
             decidedAt,
@@ -445,6 +459,7 @@ export function createApplicationService({
         await afterDecision(tx, {
           type: 'REJECTED',
           projectId: project.id,
+          project: projectSummary(project),
           application: { id: application.id, freelancerId: application.freelancerId },
           autoRejected: [],
           decidedAt,
