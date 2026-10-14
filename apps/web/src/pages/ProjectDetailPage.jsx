@@ -122,7 +122,13 @@ export function ProjectDetailPage() {
         </div>
         <h1>{data.title}</h1>
         <p className="project-detail__client">
-          {data.client.companyName ?? data.client.name} · {data.client.name}
+          <Link
+            to={`/users/${data.client.id}`}
+            aria-label={`${data.client.companyName ?? data.client.name} 의뢰인 프로필 보기`}
+          >
+            {data.client.companyName ?? data.client.name}
+          </Link>{' '}
+          · {data.client.name}
         </p>
       </header>
 

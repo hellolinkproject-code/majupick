@@ -94,7 +94,14 @@ export function MyProfilePage() {
 
   return (
     <section className="profile">
-      <h1>내 프로필</h1>
+      <div className="project-page__heading">
+        <h1>내 프로필</h1>
+        {user.role && (
+          <Link to={`/users/${user.id}`} className="button button--small button--ghost">
+            공개 프로필 보기
+          </Link>
+        )}
+      </div>
       {me.isError && (
         <p className="form-alert" role="alert">
           최신 정보를 불러오지 못했습니다.

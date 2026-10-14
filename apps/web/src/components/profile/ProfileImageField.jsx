@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { parseApiError } from '../../lib/authApi.js';
 import { validateImageFile } from '../../lib/profileForm.js';
 import { profileImageSrc, removeProfileImage, uploadProfileImage } from '../../lib/profileApi.js';
@@ -23,13 +23,17 @@ export function ProfileImageField({ user }) {
     if (inputRef.current) inputRef.current.value = '';
   }
 
+  const queryClient = useQueryClient();
+  const refreshPublic = (saved) =>
+    queryClient.invalidateQueries({ queryKey: ['public-profile', String(saved.id)] });
   const onError = (requestError) => {
     setNotice('');
     setError(parseApiError(requestError).message);
   };
   const upload = useMutation({
     mutationFn: uploadProfileImage,
-    onSuccess: () => {
+    onSuccess: (saved) => {
+      refreshPublic(saved);
       resetSelection();
       setNotice('프로필 이미지를 저장했습니다.');
     },
@@ -40,7 +44,10 @@ export function ProfileImageField({ user }) {
   });
   const remove = useMutation({
     mutationFn: removeProfileImage,
-    onSuccess: () => setNotice('프로필 이미지를 삭제했습니다.'),
+    onSuccess: (saved) => {
+      refreshPublic(saved);
+      setNotice('프로필 이미지를 삭제했습니다.');
+    },
     onError,
   });
   const busy = upload.isPending || remove.isPending;

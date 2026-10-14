@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { parseApiError } from '../../lib/authApi.js';
 
 /**
@@ -11,9 +11,11 @@ export function useProfileSave({ save, validate, onSaved }) {
   const [formError, setFormError] = useState('');
   const [notice, setNotice] = useState('');
 
+  const queryClient = useQueryClient();
   const mutation = useMutation({
     mutationFn: save,
     onSuccess: (user) => {
+      queryClient.invalidateQueries({ queryKey: ['public-profile', String(user.id)] });
       onSaved?.(user);
       setNotice('저장했습니다.');
     },

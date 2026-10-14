@@ -724,6 +724,59 @@ a {
   margin-top: 0.75rem;
 }
 
+.public-profile {
+  display: grid;
+  gap: 1.25rem;
+}
+
+.public-profile__header {
+  display: flex;
+  gap: 1.25rem;
+  align-items: center;
+}
+
+.public-profile__identity {
+  display: grid;
+  gap: 0.25rem;
+  justify-items: start;
+  min-width: 0;
+}
+
+.public-profile__name {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.public-profile__subtitle {
+  margin: 0;
+  color: #4b5563;
+  overflow-wrap: anywhere;
+}
+
+.public-profile__role--client {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.public-profile__role--freelancer {
+  color: #065f46;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+
+.public-profile__incomplete {
+  margin: 0;
+}
+
+.public-profile__details {
+  margin-bottom: 0;
+}
+
+.public-profile__details + .project-detail__subheading {
+  margin-top: 1.25rem;
+}
+
 .confirm-box {
   display: grid;
   gap: 0.5rem;
@@ -1024,6 +1077,15 @@ a {
 
   .profile-image__body {
     width: 100%;
+  }
+
+  .public-profile__header {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .public-profile__identity {
+    justify-items: center;
   }
 }
 

@@ -8,6 +8,7 @@ import {
   validateFreelancerProfile,
   validateUserUpdate,
 } from './profile.validation.js';
+import { findPublicUser, parseUserId } from './publicProfile.js';
 
 function onlyRole(role, label) {
   return (req, _res, next) => {
@@ -17,7 +18,7 @@ function onlyRole(role, label) {
 }
 
 /**
- * PROF-01~03. 내 프로필 조회는 AUTH-05(`GET /auth/me`)를 쓴다.
+ * PROF-01~03, 05. 내 프로필 조회는 AUTH-05(`GET /auth/me`)를 쓴다.
  * 역할이 없는 사용자는 requireRole이 403 ROLE_REQUIRED로 막는다.
  */
 export function createUsersRouter({ prisma, authConfig, imageStorage = null }) {
@@ -56,6 +57,11 @@ export function createUsersRouter({ prisma, authConfig, imageStorage = null }) {
       res.json({ data: await service.saveFreelancerProfile(req.auth.userId, profile) });
     },
   );
+
+  /** PROF-05. 로그인 없이 읽고 DB에 쓰지 않는다. 숫자가 아닌 ID(`me` 포함)는 404다. */
+  router.get('/:userId', async (req, res) => {
+    res.json({ data: await findPublicUser(prisma, parseUserId(req.params.userId)) });
+  });
 
   return router;
 }

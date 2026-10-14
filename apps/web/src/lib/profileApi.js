@@ -41,6 +41,17 @@ export async function uploadProfileImage(file) {
   );
 }
 
+/** PROF-05 공개 프로필. 로그인 없이 읽으며 수정 API와 섞지 않는다. */
+export async function fetchPublicProfile(userId) {
+  const res = await apiClient.get(`/users/${encodeURIComponent(userId)}`);
+  return res.data.data;
+}
+
+/** 사용자가 입력한 외부 링크는 http(s)일 때만 연다. */
+export function externalUrl(url) {
+  return typeof url === 'string' && /^https?:\/\//i.test(url) ? url : null;
+}
+
 /** PROF-06. */
 export async function fetchTechStacks(q) {
   const res = await apiClient.get('/tech-stacks', { params: { q: q || undefined, limit: 20 } });

@@ -11,6 +11,7 @@ import { ProjectDetailPage } from '../pages/ProjectDetailPage.jsx';
 import { ProjectEditPage } from '../pages/ProjectEditPage.jsx';
 import { ProjectNewPage } from '../pages/ProjectNewPage.jsx';
 import { ProjectSearchPage } from '../pages/ProjectSearchPage.jsx';
+import { PublicProfilePage } from '../pages/PublicProfilePage.jsx';
 import { SelectRolePage } from '../pages/SelectRolePage.jsx';
 import { SignupPage } from '../pages/SignupPage.jsx';
 
@@ -27,6 +28,7 @@ export const routes = [
       { path: 'select-role', Component: SelectRolePage },
       { path: 'projects', Component: ProjectSearchPage },
       { path: 'projects/:projectId', Component: ProjectDetailPage },
+      { path: 'users/:userId', Component: PublicProfilePage },
       {
         Component: RequireAuth,
         children: [

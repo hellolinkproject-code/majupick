@@ -97,7 +97,7 @@
 | 객체 | 필드 |
 |---|---|
 | `UserMe` | `id, email, name, role, profileImageUrl, bio, hasPassword, socialProviders[], clientProfile?, freelancerProfile?, profileCompletion: { isComplete, missingFields[] }` |
-| `PublicUser` | `id, name, role, profileImageUrl, bio, clientProfile?(companyName, businessField, websiteUrl), freelancerProfile?(mainCategory, techStacks[], careerYears, hourlyRate, portfolioUrl), ratingSummary: { average, count }` (이메일 제외) |
+| `PublicUser` | `id, name, role, profileImageUrl, bio, profileComplete, clientProfile(companyName, businessField, businessFieldEtc, websiteUrl) \| null, freelancerProfile(mainCategory, techStacks[{ id, name }], careerYears, portfolioUrl) \| null` (이메일·시간당 단가 제외, D-87. `ratingSummary: { average, count }`는 리뷰 단계 B-19에서 추가. STEP 05-C 구현 기준, §4.2) |
 | `ProjectSummary` | `id, title, category, budget, recruitStartDate, recruitEndDate, publicStatus, techStacks[], applicantCount, isBookmarked?, createdAt` |
 | `ProjectDetail` | `ProjectSummary + description, client(PublicUser 요약), status?(소유자만 7개 상태), myApplication?(프리랜서 본인 지원 상태)` |
 | `Application` | `id, projectId, project(요약), freelancer(PublicUser 요약), coverLetter, proposedAmount, proposedDurationDays, status, rejectReason, offerAmount, offerStatus, contractId?, createdAt` |
@@ -250,7 +250,7 @@
 | PROF-02 | PUT | `/users/me/client-profile` | CLIENT | A-10 | 검증 |
 | PROF-03 | PUT | `/users/me/freelancer-profile` | FREELANCER | A-11 | 검증 |
 | PROF-04 | POST | `/uploads/profile-image` | 로그인 | A-09, D-29 | 검증(로컬 저장소) |
-| PROF-05 | GET | `/users/:userId` | 공개 | A-14, B-19 | 설계 |
+| PROF-05 | GET | `/users/:userId` | 공개 | A-14, B-19 | 검증(A-14). 별점·리뷰(B-19)는 설계 |
 | PROF-06 | GET | `/tech-stacks` | 공개 | A-11, A-12, A-21 | 검증 |
 | PROF-07 | POST | `/tech-stacks` | 로그인 | A-11 | 검증 |
 
@@ -282,8 +282,11 @@
 - 이미지 제공: `GET /uploads/profile-images/:fileName` (공개). 저장소가 만든 이름 형식만 열고 그 외는 404. `Content-Type: image/webp`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'`
 
 **PROF-05 공개 프로필**
-- 응답 200: `{ data: PublicUser }` (평균 별점·리뷰 수 포함, 리뷰 목록은 `REV-03`)
-- 오류: 404
+- 로그인 없이 읽는다. Access Token이 있어도 없어도(잘못된 토큰 포함) 같은 응답이다. 본인 여부·수정 가능 여부는 담지 않는다
+- 응답 200: `{ data: PublicUser }` (평균 별점·리뷰 수는 B-19에서 추가, 리뷰 목록은 `REV-03`)
+- 오류: 404 `NOT_FOUND` — 없는 사용자, 역할을 고르지 않은 사용자, 숫자가 아니거나 범위(1~2147483647)를 벗어난 ID(`me` 포함)를 구분하지 않는다(D-88)
+- `Cache-Control: no-store`. DB에 쓰지 않는다(D-83과 같은 원칙)
+- 화면 주소: `/users/:userId`. 프로젝트 상세의 `client.id`로 연결한다. STEP 06 지원자 목록도 같은 응답·화면을 쓴다(D-89)
 
 **PROF-06 기술 스택 검색**
 - 쿼리: `q`(선택, 부분 일치), `limit`(기본 20)
@@ -315,6 +318,39 @@
 
 - 응답의 `UserMe`에는 비밀번호 해시·Refresh Token·Google `sub`가 들어가지 않는다(DB 테스트로 확인).
 - 프로필이 미완성이어도 로그인·재발급·`/auth/me`·프로필 저장은 그대로 된다(A-13, D-56).
+
+### 4.2 STEP 05-C 구현 내용과 명세 대비 차이 (PROF-05, A-14)
+
+구현: `apps/api/src/modules/profiles/publicProfile.js`(ID 해석·조회), `apps/api/src/modules/users/publicUser.js`(Prisma `select`·응답 DTO), `users.router.js`의 `GET /:userId`. 화면: `apps/web/src/pages/PublicProfilePage.jsx`, `components/profile/PublicProfileView.jsx`·`ProfileAvatar.jsx`. 테스트: `apps/api/test/public-profile.unit.test.js`, `apps/api/test/db/public-profile.integration.test.js`, `apps/web/src/app/publicProfile.test.jsx`. 스키마 변경(마이그레이션) 없음.
+
+**항목별 공개 여부** (RFP 요구는 "다른 사용자가 볼 수 있는 공개 프로필"뿐이고 항목 목록은 없다. 그래서 RFP 프로필 항목(3.1.3) 중 다른 사용자가 상대를 판단하는 데 필요한 것만 공개하고, 범위가 불분명한 개인정보는 공개하지 않는다. D-87)
+
+| 대상 | 항목 | 공개 | 근거 |
+|---|---|---|---|
+| 공통 | `id` | O | 링크·재사용용 식별자. 이미 프로젝트 상세 `client.id`로 공개됨 |
+| 공통 | `name` (표시 이름) | O | 프로젝트 상세에 이미 공개됨 |
+| 공통 | `role` | O | 화면 구성(의뢰인·프리랜서)을 정하는 데 필요 |
+| 공통 | `profileImageUrl` | O (형식 검사) | PROF-04 저장소가 만든 `/api/uploads/profile-images/<32 hex>.webp`일 때만. 그 외 값은 `null`. 서버 디렉터리 경로는 노출하지 않음 |
+| 공통 | `bio` (공개용 소개·자기소개) | O | 사용자가 소개용으로 직접 쓴 글 |
+| 공통 | `profileComplete` | O (참/거짓만) | 화면의 "작성 중" 안내용. 어떤 항목이 비었는지(`missingFields`)는 알리지 않음 |
+| 의뢰인 | `companyName`, `businessField`, `businessFieldEtc` | O | 거래 상대 판단에 필요(3.1.3). 회사명은 프로젝트 상세에 이미 공개됨 |
+| 의뢰인 | `websiteUrl` | O | 회사 공개 웹사이트. http/https만 링크로 연다 |
+| 프리랜서 | `mainCategory`, `techStacks[{ id, name }]`, `careerYears` | O | 지원자 판단에 필요(3.1.3, STEP 06 지원자 목록) |
+| 프리랜서 | `portfolioUrl` | O | 포트폴리오는 보여 주려고 등록하는 값. http/https만 링크로 연다 |
+| 프리랜서 | `hourlyRate` (희망 단가) | **X** | RFP에 공개 범위가 없고 거래 조건이라 민감. 지원 시 제안 금액(APP)으로 따로 전달된다(D-87) |
+| 비공개 | `email`, `passwordHash`·`hasPassword`, `socialAccounts`(`providerUserId` = Google `sub`, `emailAtLink`)·`socialProviders`, Access/Refresh Token·토큰 해시, `oauthTransactions`, `createdAt`·`updatedAt`, `missingFields`, 기술 스택 `normalizedName`·`isCustom`·`createdById` | **X** | 로그인·보안·운영 정보. 쿼리에서 아예 읽지 않는다(`publicUserSelect`) |
+| 해당 없음 | 전화번호 | - | 저장하지 않는 항목 |
+
+| # | 항목 | 명세 | 구현 | 근거 |
+|---|---|---|---|---|
+| 1 | `PublicUser.hourlyRate` | 포함 | 제외. DB 값은 그대로이고 완성 여부 계산에만 읽는다 | D-87 |
+| 2 | `ratingSummary` | 포함 | 리뷰 테이블이 없어 아직 없음. B-19에서 추가 | 리뷰 단계 |
+| 3 | `businessFieldEtc`, `profileComplete` | 없음 | 추가 | 사업 분야 '기타' 표시, 미완성 안내 |
+| 4 | 역할 없는 사용자·잘못된 ID | 404 | 없는 사용자와 같은 404 | D-88 |
+| 5 | 역할과 다른 프로필 행 | 미정 | 역할에 맞는 프로필만 싣고 다른 쪽은 `null` | 역할 변경 데이터가 남아도 섞이지 않게 |
+| 6 | 조회 쿼리 | 미정 | Prisma 중첩 `select` 한 번. 관계 단계마다 SELECT 1개(최대 5개)이며 기술 스택 수와 무관(N+1 없음, DB 테스트로 확인) | - |
+| 7 | 쓰기 시도 | 공개 리소스 쓰기는 403(§1) | `/users/:userId`에는 쓰기 라우트가 없어 404. 수정은 `/users/me`(본인 토큰)로만 가능 | 다른 사용자 수정 경로가 없음 |
+| 8 | 프로젝트 목록 | - | 검색 결과(SRCH-01)에는 의뢰인 정보를 넣지 않음(변경 없음). 링크는 상세의 `client.id`만 사용 | 목록 응답에 개인정보 추가 없음 |
 
 ---
 
