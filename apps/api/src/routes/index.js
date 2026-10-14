@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { healthRouter } from './health.js';
 import { metaRouter } from './meta.js';
+import { createApplicationsRouter } from '../modules/applications/applications.router.js';
 import { createAuthRouter } from '../modules/auth/auth.router.js';
 import { createUsersRouter } from '../modules/profiles/users.router.js';
 import {
@@ -33,6 +34,7 @@ export function createApiRouter({
     const projectService = createProjectService({ prisma });
     apiRouter.use('/projects', createProjectsRouter({ prisma, authConfig, projectService }));
     apiRouter.use('/me', createMyProjectsRouter({ prisma, authConfig, projectService }));
+    apiRouter.use(createApplicationsRouter({ prisma, authConfig }));
     if (imageStorage) {
       apiRouter.use('/uploads', createUploadsRouter({ prisma, authConfig, imageStorage }));
     }

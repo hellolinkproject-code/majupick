@@ -10,7 +10,7 @@ import { NoticeCard, ProfileRequiredNotice } from '../components/project/Project
 import { fetchMe, parseApiError } from '../lib/authApi.js';
 import { fetchMetaOptions } from '../lib/profileApi.js';
 import { formatWon } from '../lib/profileForm.js';
-import { createProject } from '../lib/projectApi.js';
+import { createProject, projectQueryKey } from '../lib/projectApi.js';
 import {
   clearProjectDraft,
   firstStepWithError,
@@ -112,7 +112,7 @@ function ProjectFunnel({ user, categories }) {
       clearProjectDraft(user.id);
       queryClient.invalidateQueries({ queryKey: ['my-projects'] });
       queryClient.invalidateQueries({ queryKey: ['project-search'] });
-      queryClient.setQueryData(['project', String(project.id)], project);
+      queryClient.setQueryData(projectQueryKey(project.id, user.id), project);
       navigate(`/projects/${project.id}`, {
         replace: true,
         state: { notice: '프로젝트를 등록했습니다.' },

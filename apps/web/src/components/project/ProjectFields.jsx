@@ -4,6 +4,7 @@ import { formatWon } from '../../lib/profileForm.js';
 import { PROJECT_LIMITS } from '../../lib/projectForm.js';
 
 const LOCKED_HINT = '모집이 마감되어 바꿀 수 없습니다.';
+const APPLICANT_LOCKED_HINT = '지원자가 있어 바꿀 수 없습니다.';
 
 /** 1단계: 제목·카테고리·설명. */
 export function BasicsFields({ form, setField, errors, categories }) {
@@ -48,11 +49,13 @@ export function BasicsFields({ form, setField, errors, categories }) {
 
 /**
  * 2단계: 모집 시작일·마감일·예산. 날짜는 KST 날짜이며, 오늘 이전 시작일은 고를 수 없다(D-47).
- * lockedFields에 든 항목은 바꿀 수 없다(모집 마감 후 모집 기간).
+ * lockedFields에 든 항목은 바꿀 수 없다(모집 마감 후 모집 기간, 지원자가 있을 때 예산·마감일).
  */
 export function ScheduleFields({ form, setField, errors, today, lockedFields = [] }) {
   const locked = new Set(lockedFields);
   const budgetText = formatWon(form.budget.trim());
+  // 시작일까지 잠겼으면 모집 마감 때문이고, 예산만 함께 잠겼으면 지원자 때문이다.
+  const endLockedHint = locked.has('recruitStartDate') ? LOCKED_HINT : APPLICANT_LOCKED_HINT;
   return (
     <>
       <div className="form-row">
@@ -78,7 +81,7 @@ export function ScheduleFields({ form, setField, errors, today, lockedFields = [
           min={locked.has('recruitEndDate') ? undefined : form.recruitStartDate || today}
           disabled={locked.has('recruitEndDate')}
           hint={
-            locked.has('recruitEndDate') ? LOCKED_HINT : '마감일 23:59(한국 시간)까지 모집합니다.'
+            locked.has('recruitEndDate') ? endLockedHint : '마감일 23:59(한국 시간)까지 모집합니다.'
           }
           value={form.recruitEndDate}
           onChange={(event) => setField('recruitEndDate', event.target.value)}
@@ -92,7 +95,14 @@ export function ScheduleFields({ form, setField, errors, today, lockedFields = [
         inputMode="numeric"
         autoComplete="off"
         placeholder="예: 3000000"
-        hint={budgetText ? `= ${budgetText}` : '숫자만 입력해 주세요.'}
+        disabled={locked.has('budget')}
+        hint={
+          locked.has('budget')
+            ? `${APPLICANT_LOCKED_HINT}${budgetText ? ` (${budgetText})` : ''}`
+            : budgetText
+              ? `= ${budgetText}`
+              : '숫자만 입력해 주세요.'
+        }
         value={form.budget}
         onChange={(event) => setField('budget', event.target.value.replace(/[^\d]/g, ''))}
         error={errors.budget}

@@ -8,7 +8,7 @@ import { useSessionStore } from '../stores/useSessionStore.js';
 // 역할 선택 전에는 인증 화면만 열고, 그 외에는 역할 선택으로 보낸다.
 const ROLE_EXEMPT = new Set(['/select-role', '/oauth/complete', '/oauth/link']);
 
-// 역할별 메뉴. 프리랜서 메뉴(내 지원 현황 등)는 해당 화면을 만드는 단계에서 추가한다.
+// 역할별 메뉴. 메뉴를 숨겨도 각 화면과 API가 역할을 다시 확인한다.
 function AuthNav() {
   const status = useSessionStore((state) => state.status);
   const user = useSessionStore((state) => state.user);
@@ -53,6 +53,7 @@ function AuthNav() {
           <Link to="/me/projects">내 프로젝트</Link>
         </>
       )}
+      {user.role === 'FREELANCER' && <Link to="/me/applications">내 지원 현황</Link>}
       <Link to="/me">내 프로필</Link>
       <button
         type="button"

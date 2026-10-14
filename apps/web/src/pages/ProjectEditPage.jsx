@@ -9,10 +9,11 @@ import {
 import { NoticeCard } from '../components/project/ProjectBits.jsx';
 import { parseApiError } from '../lib/authApi.js';
 import { fetchMetaOptions } from '../lib/profileApi.js';
-import { fetchProject, updateProject } from '../lib/projectApi.js';
+import { fetchProject, projectQueryKey, updateProject } from '../lib/projectApi.js';
 import { diffProject, projectToForm, todayKst, validateProjectForm } from '../lib/projectForm.js';
+import { useSessionStore } from '../stores/useSessionStore.js';
 
-function EditForm({ project, categories }) {
+function EditForm({ project, categories, viewerId }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [form, setForm] = useState(() => projectToForm(project));
@@ -28,7 +29,7 @@ function EditForm({ project, categories }) {
   const save = useMutation({
     mutationFn: (changes) => updateProject(project.id, changes),
     onSuccess: (updated) => {
-      queryClient.setQueryData(['project', String(updated.id)], updated);
+      queryClient.setQueryData(projectQueryKey(updated.id, viewerId), updated);
       queryClient.invalidateQueries({ queryKey: ['my-projects'] });
       queryClient.invalidateQueries({ queryKey: ['project-search'] });
       navigate(`/projects/${updated.id}`, {
@@ -96,8 +97,9 @@ function EditForm({ project, categories }) {
 /** PRJ-03 프로젝트 수정. 소유자이고 수정 가능한 상태일 때만 폼을 연다(최종 판단은 서버). */
 export function ProjectEditPage() {
   const { projectId } = useParams();
+  const viewerId = useSessionStore((state) => state.user?.id ?? null);
   const project = useQuery({
-    queryKey: ['project', projectId],
+    queryKey: projectQueryKey(projectId, viewerId),
     queryFn: () => fetchProject(projectId),
     staleTime: 0,
   });
@@ -141,7 +143,12 @@ export function ProjectEditPage() {
   return (
     <section className="project-page">
       <h1>프로젝트 수정</h1>
-      <EditForm key={data.updatedAt} project={data} categories={options.data.projectCategories} />
+      <EditForm
+        key={data.updatedAt}
+        project={data}
+        categories={options.data.projectCategories}
+        viewerId={viewerId}
+      />
     </section>
   );
 }

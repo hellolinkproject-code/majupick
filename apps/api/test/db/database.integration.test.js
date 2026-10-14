@@ -6,6 +6,7 @@ import { createPrismaClient } from '../../src/db/client.js';
 import { getDatabaseConfig } from '../../src/config/database.js';
 
 const EXPECTED_TABLES = [
+  'applications',
   'client_profiles',
   'freelancer_profiles',
   'freelancer_tech_stacks',

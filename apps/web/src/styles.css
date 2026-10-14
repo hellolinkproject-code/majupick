@@ -692,6 +692,70 @@ a {
   border-color: #fde68a;
 }
 
+.application-badge--pending {
+  color: #92400e;
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.application-badge--accepted {
+  color: #047857;
+  background: #ecfdf5;
+  border-color: #a7f3d0;
+}
+
+.application-badge--rejected {
+  color: #b91c1c;
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
+.apply-panel__start {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.apply-panel__start p,
+.apply-panel__closed {
+  margin: 0;
+}
+
+.apply-panel__closed {
+  color: #4b5563;
+}
+
+.apply-panel__confirm {
+  display: grid;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 0.5rem;
+}
+
+.apply-panel__confirm p {
+  margin: 0;
+}
+
+.application-item__deleted {
+  margin: 0;
+  color: #6b7280;
+}
+
+.application-item__letter summary {
+  font-size: 0.875rem;
+  color: #2563eb;
+  cursor: pointer;
+}
+
+.application-item__letter p {
+  margin: 0.5rem 0 0;
+  font-size: 0.9375rem;
+}
+
 .project-detail__header h1 {
   margin: 0.5rem 0 0.25rem;
   overflow-wrap: anywhere;
@@ -1086,6 +1150,15 @@ a {
 
   .public-profile__identity {
     justify-items: center;
+  }
+
+  .apply-panel__start .button,
+  .apply-panel__confirm .funnel-actions .button {
+    flex: 1 1 auto;
+  }
+
+  .apply-panel__confirm .project-review {
+    grid-template-columns: 1fr;
   }
 }
 

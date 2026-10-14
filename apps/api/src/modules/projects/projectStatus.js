@@ -90,7 +90,10 @@ export function stillOpenWhere(today) {
  * 마감일이 지난 모집 예정·모집 중 → 모집 마감. 조건부 UPDATE라 여러 번 실행해도 결과가 같다.
  * 조회(GET)에서는 부르지 않고 effectiveStatus로 계산한다(D-83). 수정·삭제처럼 행을 잠근 쓰기 요청과
  * 이후의 주기 작업(D-08 cron, STAT-03)이 부른다.
- * applications 테이블을 추가하면 자동 마감 때 대기 지원 일괄 거절(A-34)을 이 함수에서 함께 처리해야 한다.
+ * 자동 마감 때 대기 지원 일괄 거절(A-34)과 알림 ⑤는 STEP 06-C에서 추가한다. 그 전까지 이 함수가
+ * CLOSED로 저장한 프로젝트에도 대기 지원이 남을 수 있으므로, 06-C 작업은 "실제 상태가 모집 중이 아닌
+ * 프로젝트의 대기 지원"을 대상으로 잡아야 한다(DECISIONS D-94). 새 지원은 저장 상태와 관계없이
+ * effectiveStatus로 막는다(applications/application.service.js assertRecruiting).
  * @param {object} db Prisma 클라이언트 또는 트랜잭션
  * @param {object} scope 대상 조건(예: { id }, { clientId })
  */

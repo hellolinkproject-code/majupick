@@ -21,6 +21,14 @@ export async function createProject(payload, idempotencyKey) {
   return res.data.data;
 }
 
+/**
+ * PRJ-02 캐시 키. 응답이 보는 사람마다 달라서(소유자 필드·myApplication) 사용자별로 나눈다.
+ * 무효화는 앞부분 `['project', id]`로 하면 모든 사용자 항목에 적용된다.
+ */
+export function projectQueryKey(projectId, viewerId) {
+  return ['project', String(projectId), viewerId ?? 'guest'];
+}
+
 /** PRJ-02. 로그인했으면 토큰이 붙어 소유자에게는 내부 상태·가능한 동작이 함께 온다. */
 export async function fetchProject(projectId) {
   const res = await apiClient.get(`/projects/${projectId}`);

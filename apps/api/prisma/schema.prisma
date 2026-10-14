@@ -53,6 +53,27 @@ enum ProjectStatus {
   @@map("project_status")
 }
 
+/// 지원 결과(RFP 3.2.4). 화면의 한국어 이름(검토중·수락·거절)은 프론트엔드에서 매핑한다.
+enum ApplicationStatus {
+  PENDING
+  ACCEPTED
+  REJECTED
+
+  @@map("application_status")
+}
+
+/// 거절 사유(D-49, 제안). status = REJECTED일 때만 값이 있다(CHECK).
+enum RejectReason {
+  MANUAL
+  OTHER_ACCEPTED
+  PROJECT_CLOSED
+  NEGOTIATION_FAILED
+  PROJECT_CANCELLED
+  PROJECT_DELETED
+
+  @@map("reject_reason")
+}
+
 /// 제안(D-59)
 enum ProjectCategory {
   WEB
@@ -100,10 +121,11 @@ model User {
 
   clientProfile     ClientProfile?
   freelancerProfile FreelancerProfile?
-  socialAccounts     SocialAccount[]
-  refreshTokens      RefreshToken[]
-  oauthTransactions  OAuthTransaction[]
-  projects           Project[]
+  socialAccounts    SocialAccount[]
+  refreshTokens     RefreshToken[]
+  oauthTransactions OAuthTransaction[]
+  projects          Project[]
+  applications      Application[]
   createdTechStacks TechStack[]
 
   @@map("users")
@@ -268,8 +290,9 @@ model Project {
   createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt        DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
-  client     User               @relation(fields: [clientId], references: [id], onDelete: Restrict)
-  techStacks ProjectTechStack[]
+  client       User               @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  techStacks   ProjectTechStack[]
+  applications Application[]
 
   @@unique([clientId, idempotencyKey])
   @@index([status, recruitEndDate], map: "projects_status_recruit_end_date_active_idx", where: raw("deleted_at IS NULL"))
@@ -279,4 +302,37 @@ model Project {
   @@index([budget(sort: Desc)])
   @@index([clientId, createdAt(sort: Desc)])
   @@map("projects")
+}
+
+// ---------------------------------------------------------------------------
+// 지원 (STEP 06-A). 수락 시 금액 제안(offer_*)과 프로젝트당 수락 1명 부분 UNIQUE는
+// 수락·계약 단계에서 새 마이그레이션으로 추가한다(ERD_v1 §3.8, §7.6).
+// ---------------------------------------------------------------------------
+
+model Application {
+  id                   Int               @id @default(autoincrement())
+  projectId            Int               @map("project_id")
+  /// 인증된 프리랜서 본인(요청 본문으로 받지 않는다)
+  freelancerId         Int               @map("freelancer_id")
+  /// 자기소개
+  coverLetter          String            @map("cover_letter")
+  /// 예상 단가(원). CHECK > 0, 상한 없음
+  proposedAmount       BigInt            @map("proposed_amount")
+  /// 예상 기간(일, D-46). CHECK > 0
+  proposedDurationDays Int               @map("proposed_duration_days")
+  status               ApplicationStatus @default(PENDING)
+  /// status = REJECTED일 때만 값(CHECK)
+  rejectReason         RejectReason?     @map("reject_reason")
+  /// 수락·거절 시각. status <> PENDING일 때만 값(CHECK)
+  decidedAt            DateTime?         @map("decided_at") @db.Timestamptz(3)
+  createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  project    Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  freelancer User    @relation(fields: [freelancerId], references: [id], onDelete: Restrict)
+
+  @@unique([projectId, freelancerId])
+  @@index([projectId, status])
+  @@index([freelancerId, createdAt(sort: Desc)])
+  @@map("applications")
 }

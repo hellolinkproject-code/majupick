@@ -398,11 +398,11 @@
 | 2 | PRJ-01 확인 순서 | `+프로필` | 로그인(401) → 역할 선택(`ROLE_REQUIRED`) → 의뢰인(403 `FORBIDDEN`) → 프로필 완성(403 `PROFILE_INCOMPLETE` + `missingFields`) → 키·입력 검사(400) | D-78 |
 | 3 | 입력 범위 | 미정 | 제목 1~100자, 설명 1~5,000자, 카테고리 enum, 날짜 `YYYY-MM-DD`(실제 있는 날짜, KST), 예산 1~bigint 최대(숫자 문자열 또는 안전 정수, D-51), 기술 스택 1~20개(중복·없는 ID 400). 등록 시 과거 시작일·과거 마감일·마감일 < 시작일은 400 | D-47, D-77과 같은 기준 |
 | 4 | `ProjectDetail` | 소유자에게 `status` | 모든 사용자에게 `isOwner`. 소유자에게만 `status`, `availableActions`(`EDIT`·`DELETE`), `lockedFields`. 화면은 이 값으로 버튼을 보이고 숨긴다(최종 판단은 서버) | 권한 계산을 FE와 BE에 두 번 두지 않음 |
-| 5 | 아직 없는 값 | `applicantCount`, `isBookmarked`, `myApplication`, 추천 섹션 | `applicantCount`는 항상 0. 나머지는 응답에 넣지 않음 | 지원·북마크·추천 테이블이 아직 없음(해당 단계에서 추가) |
+| 5 | 아직 없는 값 | `applicantCount`, `isBookmarked`, `myApplication`, 추천 섹션 | `applicantCount`는 항상 0. 나머지는 응답에 넣지 않음. **STEP 06-A 변경:** `applicantCount`는 실제 지원 수, 프리랜서에게 `myApplication`(§7.1 #10) | 지원·북마크·추천 테이블이 아직 없음(해당 단계에서 추가) |
 | 6 | PRJ-02 인증 | 공개 | 토큰이 없으면 공개 응답. 토큰이 있는데 틀렸거나 만료면 401(조용히 공개 응답으로 바꾸지 않음) | FE 재발급 인터셉터가 동작하도록 |
 | 7 | PRJ-03 수정 가능 상태 | D-55 | `SCHEDULED`·`RECRUITING`·`CLOSED`만. `CONTRACTING` 이후 409 `FIELD_LOCKED`, `CANCELLED` 409 `INVALID_STATE_TRANSITION`. `CLOSED`에서 모집일 변경은 409 `FIELD_LOCKED` + `lockedFields` | D-80, D-09 |
 | 8 | PRJ-03 요청 | 부분 수정 | 바뀐 항목만 받음. 빈 요청 400, `status` 400(상태는 STAT API로만), `recruitEndDate: null` 400, `clientId` 무시. 날짜 검사는 바뀐 값에만 적용(이미 지난 기존 시작일은 그대로 둘 수 있음). 시작일을 바꾸면 `SCHEDULED`/`RECRUITING` 재계산. 기술 스택은 통째로 교체. 비소유자 403 `FORBIDDEN`, 삭제됨 404. 행을 `FOR UPDATE`로 잠그고 트랜잭션 안에서 저장 | D-80 |
-| 9 | 지원자 관련 제한 | D-06(예산·마감일), D-07(대기 지원 거절) | 아직 적용할 대상 없음 | 지원 테이블이 아직 없음. 지원 기능 단계에서 같은 서비스 함수에 추가 |
+| 9 | 지원자 관련 제한 | D-06(예산·마감일), D-07(대기 지원 거절) | 아직 적용할 대상 없음. **STEP 06-A 변경:** 둘 다 적용(§7.1 #11·#12) | 지원 테이블이 아직 없음. 지원 기능 단계에서 같은 서비스 함수에 추가 |
 | 10 | PRJ-04 삭제 가능 상태 | D-07 | `SCHEDULED`·`RECRUITING`·`CLOSED`만. 그 밖은 409 `INVALID_STATE_TRANSITION`. 삭제 후 상세·수정·삭제·내 목록 모두 404/제외, DB 행은 남음 | D-80, D-53 |
 | 11 | PRJ-05 쿼리·항목 | `status`, `page`, `contractStatus`, `displayStatus` | `page`만(기본 1, 10개, 최신 등록순). 각 항목은 요약 + `status`·`availableActions`·`lockedFields`. 계약 세부 상태는 없음. 의뢰인이 아니면 403 `FORBIDDEN` | 상태 필터는 STEP 05-B, 계약 세부 상태는 계약 단계 |
 | 12 | 상태 자동 전환 | D-08 | 상세·수정·삭제·내 목록 조회 직전에 조건부 `UPDATE`로 보정(시작일 도래 → `RECRUITING`, 마감일 경과 → `CLOSED` + `closed_at`). 여러 번 실행해도 결과가 같다. 마감 시 대기 지원 일괄 거절(A-34)은 지원 단계에서 추가. **STEP 05-B 변경:** 조회(상세·내 목록·검색)는 DB에 쓰지 않고 날짜로 계산한 상태를 보여 준다. 저장 보정은 수정·삭제(행 잠금) 때만 한다(§6.1 #2) | D-81 → D-83(제안) |
@@ -463,7 +463,7 @@
 
 - 화면 `/projects`(비로그인 가능): 검색어(300ms 지연), 카테고리·예산(500ms 지연)·기술 스택·마감일·모집 상태 필터, 정렬, 총 개수, 카드, 페이지 번호, 조건 초기화, 불러오는 중·오류(다시 시도)·빈 결과·범위 밖 페이지 안내. 모든 조건은 주소 쿼리에 있어 새로고침·뒤로 가기·공유 링크에서 복원된다. 조건이 바뀌면 1페이지로 돌아간다. 768px 이하에서는 필터를 "필터 펼치기" 버튼으로 접는다.
 - TanStack Query 키는 정규화한 조건(`['project-search', criteria]`)이라 늦게 도착한 이전 응답이 현재 결과를 덮지 않는다. 화면이 다시 그려지기 전에 조건이 연달아 바뀌어도(입력 지연 타이머와 클릭 등) 앞선 변경을 잃지 않는다.
-- 지원·북마크·계약·결제 버튼은 카드·상세에 없다(해당 기능 단계에서 추가).
+- 지원·북마크·계약·결제 버튼은 카드·상세에 없다(해당 기능 단계에서 추가). **STEP 06-A 변경:** 상세에 지원 영역 추가(§7.1).
 
 **SRCH-02 추천 프로젝트**
 - 응답 200: `{ data: ProjectSummary[] }` (최대 4개, 같은 카테고리 + 기술 스택 겹침 순, 모집 중만, 자기 자신 제외. D-30 제안)
@@ -477,10 +477,10 @@
 
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
-| APP-01 | POST | `/projects/:projectId/applications` | FREELANCER +프로필 | A-29, A-36① | 설계 |
-| APP-02 | GET | `/projects/:projectId/applications` | 프로젝트 소유자 | A-31 | 설계 |
-| APP-03 | GET | `/applications/:applicationId` | 작성자 또는 프로젝트 소유자 | A-31, A-35 | 설계 |
-| APP-04 | GET | `/me/applications` | FREELANCER | A-30, A-35 | 설계 |
+| APP-01 | POST | `/projects/:projectId/applications` | FREELANCER +프로필 | A-29, A-36① | 구현 (STEP 06-A, 알림 ①은 06-C) |
+| APP-02 | GET | `/projects/:projectId/applications` | 프로젝트 소유자 | A-31 | 설계 (06-B) |
+| APP-03 | GET | `/applications/:applicationId` | 작성자 또는 프로젝트 소유자 | A-31, A-35 | 일부 구현 (STEP 06-A 작성자만, 소유자는 06-B) |
+| APP-04 | GET | `/me/applications` | FREELANCER | A-30, A-35 | 구현 (STEP 06-A) |
 
 **APP-01 지원서 제출**
 - 요청: `{ coverLetter, proposedAmount: "2500000", proposedDurationDays: 30 }`
@@ -499,6 +499,30 @@
 **APP-04 내 지원 현황**
 - 쿼리: `status`(선택), `page`
 - 응답 200: 목록. 각 항목에 지원 결과(검토중·수락·거절), 거절 사유, 제안 금액·제안 상태, 계약 ID(있으면) 포함. 삭제된 프로젝트의 지원도 남는다(A-35)
+
+### 7.1 STEP 06-A 구현 내용과 명세 대비 차이 (APP-01, APP-03 일부, APP-04)
+
+구현: `apps/api/src/modules/applications/`(`application.validation.js`, `application.service.js`, `applications.router.js`), `projects/project.service.js`(PRJ-02 `myApplication`·`applicantCount`, D-06·D-07). 화면: `apps/web/src/components/application/ApplyPanel.jsx`(상세의 지원 영역), `pages/MyApplicationsPage.jsx`(`/me/applications`). 테스트: `apps/api/test/application.unit.test.js`(단위), `apps/api/test/db/applications.integration.test.js`(실제 테스트 DB), `apps/web/src/app/applicationFlow.test.jsx`(화면). 마이그레이션 1개(ERD_v1 §7.6).
+
+| # | 항목 | 명세 | 구현 | 근거 |
+|---|---|---|---|---|
+| 1 | APP-01 요청 | `{ coverLetter, proposedAmount, proposedDurationDays }` | 같음. 세 항목 모두 필수. 자기소개 1~2,000자(앞뒤 공백 제거), 예상 단가 1~bigint 최대(문자열 권장), 기간 1~3,650일 정수. `freelancerId`·`projectId`·`status`·`rejectReason`·`decidedAt`을 보내면 400(지원자는 토큰의 사용자) | D-90 |
+| 2 | APP-01 확인 순서 | `FREELANCER +프로필` | 로그인 401 → 역할 `ROLE_REQUIRED` → 프리랜서 403 `FORBIDDEN` → 프로필 403 `PROFILE_INCOMPLETE` + `missingFields` → 프로젝트 404(없음·삭제·취소) → 모집 상태 409 → 중복 409 → 입력 400 | D-78, D-91 |
+| 3 | APP-01 모집 상태 | `RECRUITING`인지 확인(D-34) | 저장값이 아니라 `effectiveStatus`(D-83)로 판단. 마감일 당일 KST 23:59:59.999까지 가능, 다음 날 00:00부터 409 `INVALID_STATE_TRANSITION`. `details.currentStatus`는 공개 상태(`SCHEDULED`·`CLOSED`)만. 저장값 `RECRUITING`이어도 마감일이 지났으면 거부(cron 여부와 무관). 요청은 DB의 프로젝트 상태를 바꾸지 않음 | D-34, D-83, D-91 |
+| 4 | APP-01 중복 | 409 `ALREADY_APPLIED` | 같음 + `details.applicationId`. 동시 요청 5건 → 201 1건 + 409 4건(UNIQUE 위반 P2002 변환) | ERD_v1 §5 #1 |
+| 5 | APP-01 동시성 | 미정 | 프로젝트 행 `FOR SHARE` 잠금 트랜잭션. 수정·삭제·(이후)수락·마감은 `FOR UPDATE`라 서로 기다린 뒤 최신 상태로 판단. 삭제·계약 단계 전환과 동시에 들어온 지원은 404/409 | D-91 |
+| 6 | APP-01 알림 ① | 지원 생성과 한 트랜잭션 | **미구현.** `notifications` 테이블이 없음. 06-C에서 같은 트랜잭션 안에 추가(코드에 위치 표시). 이전 지원에 소급 생성하지 않음 | D-94 |
+| 7 | `Application` 응답 | `id, projectId, project, freelancer, coverLetter, proposedAmount, proposedDurationDays, status, rejectReason, offerAmount, offerStatus, contractId?, createdAt` | `id, projectId, project{ id, title, category, budget, recruitStartDate, recruitEndDate, publicStatus, isDeleted }, coverLetter, proposedAmount, proposedDurationDays, status, rejectReason, decidedAt, createdAt, updatedAt`. `freelancer`는 본인이라 생략(APP-02에서 추가), `offer*`·`contractId`는 수락·계약 단계. 의뢰인 정보·이메일·`freelancerId` 없음. 삭제된 프로젝트는 `isDeleted: true`, `publicStatus: CLOSED` | D-93 |
+| 8 | APP-03 | 작성자 또는 소유자 | **작성자만.** 남의 지원·의뢰인(소유자 포함)·형식 오류는 모두 404 | D-93, §1.3 |
+| 9 | APP-04 쿼리 | `status`, `page` | 같음. `status`는 `PENDING`·`ACCEPTED`·`REJECTED`(그 밖 400), `page` 1부터, 10개씩 최신 지원순. 범위 밖 페이지는 200 + 빈 목록. 개수와 목록은 REPEATABLE READ 한 스냅샷. 의뢰인 403 `FORBIDDEN` | PRJ-05와 같은 규칙 |
+| 10 | PRJ-02 | `myApplication?` | 로그인한 프리랜서에게만 `myApplication: { id, status, rejectReason, createdAt } \| null`. 비로그인·의뢰인에게는 키가 없음. `applicantCount`는 결과와 무관한 전체 지원 수. 취소된 프로젝트는 소유자와 그 지원자만 200 | D-93 |
+| 11 | PRJ-03 | 409 `FIELD_LOCKED`(D-06) | 대기·수락 지원이 있으면 예산·마감일을 바꾸면 409 `FIELD_LOCKED`(같은 값은 허용). 소유자 응답의 `lockedFields`에 `budget`·`recruitEndDate` 추가 | D-06, D-92 |
+| 12 | PRJ-04 | 대기 지원 `REJECTED(PROJECT_DELETED)` | 같음. 삭제와 같은 트랜잭션에서 `decided_at` 기록. 지원자의 내 지원 현황에는 남음 | D-07, D-92 |
+| 13 | 철회 | 없음(D-35) | 철회 API·버튼 없음. 확인 화면에서 "수정·철회할 수 없다"고 안내 | D-35 |
+| 14 | 응답 캐시 | 없음 | 지원 API 모두 `Cache-Control: no-store` | 사용자별 응답 |
+
+- 화면: 상세(`/projects/:id`)의 "프로젝트 지원" 영역. 비로그인은 "로그인하고 지원하기"(로그인 후 같은 상세로 복귀), 의뢰인·소유자에게는 지원 영역이 없음, 프로필 미완성 프리랜서는 남은 항목과 `/me?returnTo=/projects/:id` 링크, 모집 예정·마감은 안내만, 이미 지원했으면 지원 상태와 내 지원 현황 링크. 입력 → 확인 → "지원 확정" 순서이고 요청 중에는 버튼이 잠긴다. 서버 성공 응답을 받은 뒤에만 `/me/applications`로 이동해 성공 안내를 띄운다(A-30).
+- 화면 `/me/applications`(로그인 필요, 프리랜서 전용): 지원 상태·프로젝트 공개 상태 배지, 지원일, 프로젝트 제목(상세 링크, 삭제된 프로젝트는 링크 없음), 예산·모집 기간, 내 제안 금액·기간, 거절 사유, 제출한 자기소개 펼쳐 보기. 불러오는 중·오류(다시 시도)·빈 목록(프로젝트 찾기 링크)·페이지 이동. 헤더에 프리랜서용 "내 지원 현황" 메뉴.
 
 ---
 

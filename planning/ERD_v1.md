@@ -592,7 +592,7 @@ erDiagram
 | 타입 | 금액 `bigint`(`budget`, `hourly_rate`), 모집일 `date`, 그 밖의 시각 `timestamptz(3)`(UTC). `timestamp without time zone` 컬럼은 없다 |
 | 검증 | 실제 DB 카탈로그 조회 + 통합 테스트 22개(`apps/api/test/db/`) 통과 |
 
-아직 만들지 않은 테이블: `applications`, `contracts`, `payments`, `reviews`, `notifications`, `bookmarks`. 각 기능 단계에서 새 마이그레이션으로 추가한다(기존 마이그레이션 파일은 수정하지 않는다).
+아직 만들지 않은 테이블: ~~`applications`~~(STEP 06-A, §7.6), `contracts`, `payments`, `reviews`, `notifications`, `bookmarks`. 각 기능 단계에서 새 마이그레이션으로 추가한다(기존 마이그레이션 파일은 수정하지 않는다).
 
 ### 7.3 STEP 04-B (2026-10-13)
 
@@ -624,6 +624,21 @@ erDiagram
 | 쓰임 | 등록 요청의 `Idempotency-Key`를 저장해 같은 의뢰인의 재전송·동시 전송을 한 건으로 만든다(D-79). 키는 의뢰인별이라 다른 의뢰인이 같은 값을 써도 각자 만들어진다 |
 | 그대로 쓴 것 | `projects`의 나머지 컬럼·CHECK(`budget > 0`, 모집일 순서)·부분 인덱스, `project_tech_stacks`. 소프트 삭제는 `deleted_at`(D-53), 마감 시각은 `closed_at` |
 | 금액·날짜 | `budget` `bigint`(API는 문자열). 모집일은 `date`(KST 달력 날짜), Prisma에서는 UTC 자정 `Date`로 읽고 쓴다 |
+
+### 7.6 STEP 06-A 프로젝트 지원 (2026-10-14)
+
+| 항목 | 내용 |
+|---|---|
+| 마이그레이션 | `apps/api/prisma/migrations/20261014090000_project_applications/migration.sql` |
+| 추가 | enum `application_status`(`PENDING`·`ACCEPTED`·`REJECTED`), enum `reject_reason`(D-49 6개 값, 제안), 테이블 `applications`. 기존 테이블·행·제약은 바꾸지 않았다(`DROP`·`TRUNCATE`·데이터 삭제 없음) |
+| 컬럼 | `id`, `project_id`, `freelancer_id`, `cover_letter text`, `proposed_amount bigint`, `proposed_duration_days integer`, `status`(기본 `PENDING`), `reject_reason`(NULL), `decided_at timestamptz(3)`(NULL), `created_at`, `updated_at` |
+| 외래키 | `project_id → projects.id`, `freelancer_id → users.id` 모두 `ON DELETE RESTRICT`(§3.8). 지원이 있는 사용자·프로젝트 행은 실제로 지울 수 없고, 프로젝트는 소프트 삭제(D-53) |
+| UNIQUE | `applications_project_id_freelancer_id_key (project_id, freelancer_id)` — 중복 지원 방지(A-29, §5 #1) |
+| CHECK (4, SQL 수동 추가) | `applications_proposed_amount_check`(`> 0`), `applications_proposed_duration_days_check`(`> 0`), `applications_reject_reason_check`(`(status = 'REJECTED') = (reject_reason IS NOT NULL)`), `applications_decided_at_check`(`(status = 'PENDING') = (decided_at IS NULL)`) |
+| 인덱스 | `(project_id, status)`(지원 수·D-06 잠금·06-B 일괄 거절), `(freelancer_id, created_at DESC)`(내 지원 현황) |
+| 이번에 만들지 않은 것 | `offer_amount`·`offer_status`·`offered_at`·`offer_responded_at`, CHECK "수락이면 제안 금액 필수", 부분 UNIQUE `(project_id) WHERE status = 'ACCEPTED'`. 수락·금액 합의(06-B·계약 단계)에서 NULL 허용 컬럼 추가 마이그레이션으로 붙인다(기존 행에 영향 없음). D-92 |
+| 적용 | 적용 전 `prisma migrate diff`로 SQL을 만들어 검토 → `workbridge_dev`(`db:migrate:deploy`), `workbridge_test`(`db:migrate:test`). `migrate dev`·`reset`·`push`는 쓰지 않았다. 적용 전후 `users`·`projects`·`social_accounts` 행 수와 내용 해시가 같음을 확인(개발 DB 사용자 8·프로젝트 2·Google 연결 1). CHECK 제약 수 5 → 9 |
+| 검증 | `prisma migrate diff --from-config-datasource --to-schema`: "No difference detected". `pg_constraint`·`pg_indexes`·`pg_enum`에서 제약·FK(RESTRICT)·인덱스·enum 값을 DB 테스트로 확인(`applications.integration.test.js`). PostgreSQL 18은 NOT NULL도 `pg_constraint`(`contype = 'n'`)에 기록하므로 검사에서 제외 |
 
 ### 7.2 설계와 다른 점과 이유
 

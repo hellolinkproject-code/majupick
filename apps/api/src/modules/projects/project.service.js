@@ -1,4 +1,5 @@
 import { HttpError } from '../../utils/httpError.js';
+import { ACTIVE_APPLICATION_STATUSES } from '../applications/application.service.js';
 import { DATE_MESSAGES, MY_PROJECTS_PAGE_SIZE } from './project.validation.js';
 import { buildSearchWhere, SEARCH_PAGE_SIZE, searchSegments } from './projectSearch.js';
 import {
@@ -26,8 +27,13 @@ const unknownTechStacks = () =>
 
 /** 모집이 마감되면 재모집을 지원하지 않으므로(D-09) 모집 기간은 바꿀 수 없다. */
 const CLOSED_LOCKED_FIELDS = ['recruitStartDate', 'recruitEndDate'];
+/** 대기·수락 지원이 있으면 지원 조건이 바뀌지 않게 예산·마감일을 막는다(A-16, D-06). */
+const APPLICANT_LOCKED_FIELDS = ['budget', 'recruitEndDate'];
+
+const applicationCount = Object.freeze({ select: { applications: true } });
 
 const projectInclude = Object.freeze({
+  _count: applicationCount,
   client: {
     select: {
       id: true,
@@ -56,26 +62,43 @@ function toSummary(project) {
     recruitEndDate: fromDbDate(project.recruitEndDate),
     publicStatus: toPublicStatus(project.status),
     techStacks: toTechStacks(project.techStacks),
-    // 지원(applications)은 아직 테이블이 없어 항상 0이다. 지원 단계에서 실제 개수로 바꾼다.
-    applicantCount: 0,
+    // 지금까지 지원한 사람 수(결과와 무관). 지원자 개인정보는 싣지 않는다.
+    applicantCount: project._count?.applications ?? 0,
     createdAt: project.createdAt,
     updatedAt: project.updatedAt,
   };
 }
 
+function lockedFieldsOf(status, activeApplicantCount) {
+  const fields = new Set(status === 'CLOSED' ? CLOSED_LOCKED_FIELDS : []);
+  if (activeApplicantCount > 0) APPLICANT_LOCKED_FIELDS.forEach((field) => fields.add(field));
+  return [...fields];
+}
+
 /** 소유자에게만 7개 상태와 지금 할 수 있는 동작을 알려 FE가 버튼을 직접 계산하지 않게 한다. */
-function ownerFields(project) {
+function ownerFields(project, activeApplicantCount = 0) {
   const availableActions = [];
   if (EDITABLE_STATUSES.has(project.status)) availableActions.push('EDIT');
   if (DELETABLE_STATUSES.has(project.status)) availableActions.push('DELETE');
   return {
     status: project.status,
     availableActions,
-    lockedFields: project.status === 'CLOSED' ? CLOSED_LOCKED_FIELDS : [],
+    lockedFields: lockedFieldsOf(project.status, activeApplicantCount),
   };
 }
 
-export function toProjectDetail(project, viewerId = null) {
+/** 프리랜서 본인의 지원 상태(PRJ-02 myApplication). 지원하지 않았으면 null. */
+function toMyApplication(application) {
+  if (!application) return null;
+  const { id, status, rejectReason, createdAt } = application;
+  return { id, status, rejectReason, createdAt };
+}
+
+/**
+ * @param {object} viewer activeApplicantCount: 소유자 화면의 잠금 계산용,
+ *   myApplication: 로그인한 프리랜서에게만 넣는다(undefined면 키 자체를 넣지 않는다)
+ */
+export function toProjectDetail(project, viewerId = null, viewer = {}) {
   const isOwner = viewerId !== null && viewerId === project.clientId;
   const { client } = project;
   return {
@@ -88,12 +111,26 @@ export function toProjectDetail(project, viewerId = null) {
       companyName: client.clientProfile?.companyName ?? null,
     },
     isOwner,
-    ...(isOwner && ownerFields(project)),
+    ...(isOwner && ownerFields(project, viewer.activeApplicantCount)),
+    ...(viewer.myApplication !== undefined && {
+      myApplication: toMyApplication(viewer.myApplication),
+    }),
   };
 }
 
-function toMyProject(project) {
-  return { ...toSummary(project), ...ownerFields(project) };
+function toMyProject(project, activeApplicantCount) {
+  return { ...toSummary(project), ...ownerFields(project, activeApplicantCount) };
+}
+
+/** 프로젝트별 대기·수락 지원 수(D-06 잠금 계산). */
+async function countActiveApplications(db, projectIds) {
+  if (projectIds.length === 0) return new Map();
+  const rows = await db.application.groupBy({
+    by: ['projectId'],
+    where: { projectId: { in: projectIds }, status: { in: ACTIVE_APPLICATION_STATUSES } },
+    _count: { _all: true },
+  });
+  return new Map(rows.map((row) => [row.projectId, row._count._all]));
 }
 
 /** 조회 응답용: 마감일·시작일이 지난 상태를 DB에 쓰지 않고 반영한다(D-83). */
@@ -125,6 +162,7 @@ const searchSelect = Object.freeze({
   createdAt: true,
   updatedAt: true,
   techStacks: projectInclude.techStacks,
+  _count: applicationCount,
 });
 
 const pagination = (page, pageSize, totalCount) => ({
@@ -226,15 +264,37 @@ export function createProjectService({ prisma }) {
       }
     },
 
-    /** PRJ-02. 삭제된 프로젝트는 누구에게나 404, 취소된 프로젝트는 소유자만 본다. DB는 바꾸지 않는다. */
+    /**
+     * PRJ-02. 삭제된 프로젝트는 누구에게나 404, 취소된 프로젝트는 소유자·지원자만 본다. DB는 바꾸지 않는다.
+     * 로그인한 프리랜서에게는 본인 지원 상태(myApplication), 소유자에게는 지원자에 따른 잠금 항목을 준다.
+     */
     async getProject(projectId, viewerId = null) {
       const project = await prisma.project.findFirst({
         where: { id: projectId, deletedAt: null },
         include: projectInclude,
       });
       if (!project) throw notFound();
-      if (project.status === 'CANCELLED' && project.clientId !== viewerId) throw notFound();
-      return toProjectDetail(withCurrentStatus(project, todayKst(now())), viewerId);
+      const isOwner = viewerId !== null && project.clientId === viewerId;
+
+      const viewer = {};
+      if (isOwner) {
+        const counts = await countActiveApplications(prisma, [projectId]);
+        viewer.activeApplicantCount = counts.get(projectId) ?? 0;
+      } else if (viewerId !== null) {
+        const user = await prisma.user.findUnique({
+          where: { id: viewerId },
+          select: {
+            role: true,
+            applications: {
+              where: { projectId },
+              select: { id: true, status: true, rejectReason: true, createdAt: true },
+            },
+          },
+        });
+        if (user?.role === 'FREELANCER') viewer.myApplication = user.applications[0] ?? null;
+      }
+      if (project.status === 'CANCELLED' && !isOwner && !viewer.myApplication) throw notFound();
+      return toProjectDetail(withCurrentStatus(project, todayKst(now())), viewerId, viewer);
     },
 
     /**
@@ -261,6 +321,21 @@ export function createProjectService({ prisma }) {
             'FIELD_LOCKED',
             '모집이 마감된 프로젝트는 모집 기간을 바꿀 수 없습니다.',
             { currentStatus: project.status, lockedFields: CLOSED_LOCKED_FIELDS },
+          );
+        }
+
+        const budgetChanged = 'budget' in changes && changes.budget !== project.budget;
+        const activeApplicantCount =
+          (await countActiveApplications(tx, [projectId])).get(projectId) ?? 0;
+        if (activeApplicantCount > 0 && (budgetChanged || endChanged)) {
+          throw new HttpError(
+            409,
+            'FIELD_LOCKED',
+            '지원자가 있는 프로젝트는 예산과 모집 마감일을 바꿀 수 없습니다.',
+            {
+              currentStatus: project.status,
+              lockedFields: lockedFieldsOf(project.status, activeApplicantCount),
+            },
           );
         }
 
@@ -296,17 +371,32 @@ export function createProjectService({ prisma }) {
           });
         }
 
-        return tx.project.update({ where: { id: projectId }, data, include: projectInclude });
+        const saved = await tx.project.update({
+          where: { id: projectId },
+          data,
+          include: projectInclude,
+        });
+        return { saved, activeApplicantCount };
       });
-      return toProjectDetail(updated, userId);
+      return toProjectDetail(updated.saved, userId, {
+        activeApplicantCount: updated.activeApplicantCount,
+      });
     },
 
-    /** PRJ-04 소프트 삭제(D-53). 행은 남기고 deleted_at만 기록한다. 모집 단계에서만 가능(D-07). */
+    /**
+     * PRJ-04 소프트 삭제(D-53). 행은 남기고 deleted_at만 기록한다. 모집 단계에서만 가능(D-07).
+     * 같은 트랜잭션에서 대기 지원을 REJECTED(PROJECT_DELETED)로 바꿔 지원자 화면에 결과가 남게 한다(D-07, A-35).
+     */
     async deleteProject(userId, projectId) {
       await prisma.$transaction(async (tx) => {
         const project = await lockOwnedProject(tx, projectId, userId, '삭제');
         if (!DELETABLE_STATUSES.has(project.status)) throw lockedByStatus(project, '삭제');
-        await tx.project.update({ where: { id: projectId }, data: { deletedAt: now() } });
+        const deletedAt = now();
+        await tx.application.updateMany({
+          where: { projectId, status: 'PENDING' },
+          data: { status: 'REJECTED', rejectReason: 'PROJECT_DELETED', decidedAt: deletedAt },
+        });
+        await tx.project.update({ where: { id: projectId }, data: { deletedAt } });
       });
     },
 
@@ -327,8 +417,14 @@ export function createProjectService({ prisma }) {
         ],
         { isolationLevel: 'RepeatableRead' },
       );
+      const activeCounts = await countActiveApplications(
+        prisma,
+        projects.map((project) => project.id),
+      );
       return {
-        data: projects.map((project) => toMyProject(withCurrentStatus(project, today))),
+        data: projects.map((project) =>
+          toMyProject(withCurrentStatus(project, today), activeCounts.get(project.id) ?? 0),
+        ),
         pagination: pagination(page, MY_PROJECTS_PAGE_SIZE, totalCount),
       };
     },

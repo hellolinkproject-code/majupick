@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ApplyPanel } from '../components/application/ApplyPanel.jsx';
 import { NoticeCard, StatusBadge } from '../components/project/ProjectBits.jsx';
 import { parseApiError } from '../lib/authApi.js';
 import { fetchMetaOptions } from '../lib/profileApi.js';
 import { formatWon } from '../lib/profileForm.js';
-import { deleteProject, fetchProject } from '../lib/projectApi.js';
+import { deleteProject, fetchProject, projectQueryKey } from '../lib/projectApi.js';
 import { formatPeriod } from '../lib/projectForm.js';
+import { useSessionStore } from '../stores/useSessionStore.js';
 
 /** 삭제는 되돌릴 수 없으므로 한 번 더 확인한다(D-50). 실제로는 소프트 삭제(D-53). */
 function DeleteControl({ project }) {
@@ -62,15 +64,20 @@ function DeleteControl({ project }) {
   );
 }
 
-/** PRJ-02 프로젝트 상세. 소유자에게만 7개 상태와 수정·삭제 버튼을 보여 준다. */
+/** PRJ-02 프로젝트 상세. 소유자에게만 7개 상태와 수정·삭제 버튼을, 프리랜서에게는 지원 영역을 보여 준다. */
 export function ProjectDetailPage() {
   const { projectId } = useParams();
   const location = useLocation();
   const notice = location.state?.notice;
+  const sessionStatus = useSessionStore((state) => state.status);
+  const viewerId = useSessionStore((state) => state.user?.id ?? null);
+  const sessionSettled = sessionStatus !== 'idle' && sessionStatus !== 'restoring';
   const project = useQuery({
-    queryKey: ['project', projectId],
+    queryKey: projectQueryKey(projectId, viewerId),
     queryFn: () => fetchProject(projectId),
     staleTime: 0,
+    // 새로고침 직후 토큰 복원 전에 요청하면 비로그인 응답(소유자 정보·지원 여부 없음)이 남는다.
+    enabled: sessionSettled,
   });
   const options = useQuery({
     queryKey: ['meta-options'],
@@ -162,6 +169,8 @@ export function ProjectDetailPage() {
         <h2 id="project-description-heading">프로젝트 설명</h2>
         <p className="project-detail__description">{data.description}</p>
       </section>
+
+      <ApplyPanel key={data.id} project={data} />
 
       {data.isOwner && (
         <section className="profile-card" aria-labelledby="project-owner-heading">
