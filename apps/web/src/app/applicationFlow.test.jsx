@@ -246,7 +246,7 @@ describe('applying from the project detail page', () => {
       }),
     });
     expect(await screen.findByText('이 프로젝트에 지원했습니다.')).toBeTruthy();
-    expect(screen.getByText(/지원 상태: 검토중/)).toBeTruthy();
+    expect(screen.getByText(/지원 상태: 검토 대기/)).toBeTruthy();
     expect(screen.getByRole('link', { name: '내 지원 현황 보기' }).getAttribute('href')).toBe(
       '/me/applications',
     );
@@ -429,6 +429,23 @@ describe('applying from the project detail page', () => {
     click('지원 확정');
     expect(await screen.findByText('지원하려면 프로필을 먼저 완성해 주세요.')).toBeTruthy();
   });
+
+  it('clears a field error as soon as that field is edited', async () => {
+    renderAt('/projects/41', freelancer, {
+      'GET /projects/41': () => ({ data: { data: publicDetail({ myApplication: null }) } }),
+    });
+    await openForm();
+    click('다음');
+    expect(await screen.findByText('자기소개를 입력해 주세요.')).toBeTruthy();
+    expect(screen.getByText('예상 기간은 1~3,650일 사이의 정수로 입력해 주세요.')).toBeTruthy();
+
+    type(/^자기소개/, '경험이 많습니다');
+    expect(screen.queryByText('자기소개를 입력해 주세요.')).toBeNull();
+    // 고치지 않은 항목의 오류는 남는다.
+    expect(screen.getByText('예상 기간은 1~3,650일 사이의 정수로 입력해 주세요.')).toBeTruthy();
+    type(/^예상 기간/, '30');
+    expect(screen.queryByText('예상 기간은 1~3,650일 사이의 정수로 입력해 주세요.')).toBeNull();
+  });
 });
 
 describe('my applications page', () => {
@@ -456,14 +473,68 @@ describe('my applications page', () => {
     expect(screen.getByRole('link', { name: '쇼핑몰 리뉴얼' }).getAttribute('href')).toBe(
       '/projects/41',
     );
-    expect(screen.getByText('검토중')).toBeTruthy();
+    expect(screen.getByText('검토 대기')).toBeTruthy();
     expect(screen.getByText('모집 중')).toBeTruthy();
-    expect(screen.getByText('거절')).toBeTruthy();
-    expect(screen.getByText('프로젝트가 삭제되었습니다.')).toBeTruthy();
+    expect(screen.getByText('거절됨')).toBeTruthy();
+    expect(screen.getByText('프로젝트가 삭제되어 자동으로 거절되었습니다.')).toBeTruthy();
     expect(screen.getByText('삭제된 프로젝트')).toBeTruthy();
     expect(screen.queryByRole('link', { name: /삭제된 일/ })).toBeNull();
     expect(screen.getAllByText(/내 제안 9,007,199,254,740,993,123원 · 30일/)).toHaveLength(2);
     expect(screen.getByRole('link', { name: '내 지원 현황' })).toBeTruthy();
+  });
+
+  it('shows selected and auto-rejected results with the decision date', async () => {
+    renderAt('/me/applications', freelancer, {
+      'GET /me/applications': () =>
+        listResponse([
+          application({ status: 'ACCEPTED', decidedAt: '2026-10-15T02:00:00.000Z' }),
+          application({
+            id: 302,
+            status: 'REJECTED',
+            rejectReason: 'OTHER_ACCEPTED',
+            decidedAt: '2026-10-15T02:00:00.000Z',
+          }),
+          application({
+            id: 303,
+            status: 'REJECTED',
+            rejectReason: 'MANUAL',
+            decidedAt: '2026-10-15T02:00:00.000Z',
+          }),
+        ]),
+    });
+    expect(await screen.findByText('선정됨')).toBeTruthy();
+    expect(screen.getByText(/의뢰인이 이 지원을 선정했습니다 \(2026\. 10\. 15\.\)/)).toBeTruthy();
+    expect(screen.getAllByText('거절됨')).toHaveLength(2);
+    expect(
+      screen.getByText('다른 지원자가 선정되어 자동으로 거절되었습니다. (2026. 10. 15.)'),
+    ).toBeTruthy();
+    expect(screen.getByText('의뢰인이 거절했습니다. (2026. 10. 15.)')).toBeTruthy();
+    // 처리된 지원도 내 제안·자기소개가 그대로 남는다.
+    expect(screen.getAllByText(/내 제안 9,007,199,254,740,993,123원 · 30일/)).toHaveLength(3);
+    expect(screen.getAllByText('제출한 자기소개 보기')).toHaveLength(3);
+  });
+
+  it('shows the success notice once and not again after a reload', async () => {
+    renderAt('/me/applications', freelancer, {
+      'GET /me/applications': () => listResponse([application()]),
+    });
+    await router.navigate('/me/applications', {
+      state: { notice: '"쇼핑몰 리뉴얼"에 지원했습니다.' },
+    });
+    expect(await screen.findByText('"쇼핑몰 리뉴얼"에 지원했습니다.')).toBeTruthy();
+    await waitFor(() => expect(router.state.location.state).toBeNull());
+    expect(screen.getByText('"쇼핑몰 리뉴얼"에 지원했습니다.')).toBeTruthy();
+
+    // 새로고침: 지금 기록(history) 항목으로 화면을 처음부터 다시 그린다.
+    const current = router.state.location;
+    cleanup();
+    api.restore();
+    useSessionStore.setState({ status: 'idle', accessToken: null, user: null });
+    renderAt(current, freelancer, {
+      'GET /me/applications': () => listResponse([application()]),
+    });
+    expect(await screen.findByRole('link', { name: '쇼핑몰 리뉴얼' })).toBeTruthy();
+    expect(screen.queryByText('"쇼핑몰 리뉴얼"에 지원했습니다.')).toBeNull();
   });
 
   it('shows the empty state with a link to project search', async () => {

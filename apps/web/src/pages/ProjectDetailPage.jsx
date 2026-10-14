@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ApplicantsPanel } from '../components/application/ApplicantsPanel.jsx';
 import { ApplyPanel } from '../components/application/ApplyPanel.jsx';
 import { NoticeCard, StatusBadge } from '../components/project/ProjectBits.jsx';
 import { parseApiError } from '../lib/authApi.js';
@@ -8,6 +9,7 @@ import { fetchMetaOptions } from '../lib/profileApi.js';
 import { formatWon } from '../lib/profileForm.js';
 import { deleteProject, fetchProject, projectQueryKey } from '../lib/projectApi.js';
 import { formatPeriod } from '../lib/projectForm.js';
+import { useFlashNotice } from '../lib/useFlashNotice.js';
 import { useSessionStore } from '../stores/useSessionStore.js';
 
 /** 삭제는 되돌릴 수 없으므로 한 번 더 확인한다(D-50). 실제로는 소프트 삭제(D-53). */
@@ -64,11 +66,13 @@ function DeleteControl({ project }) {
   );
 }
 
-/** PRJ-02 프로젝트 상세. 소유자에게만 7개 상태와 수정·삭제 버튼을, 프리랜서에게는 지원 영역을 보여 준다. */
+/**
+ * PRJ-02 프로젝트 상세. 소유자에게만 7개 상태·지원자 관리·수정·삭제를, 프리랜서에게는 지원 영역을 보여 준다.
+ */
 export function ProjectDetailPage() {
   const { projectId } = useParams();
   const location = useLocation();
-  const notice = location.state?.notice;
+  const notice = useFlashNotice();
   const sessionStatus = useSessionStore((state) => state.status);
   const viewerId = useSessionStore((state) => state.user?.id ?? null);
   const sessionSettled = sessionStatus !== 'idle' && sessionStatus !== 'restoring';
@@ -171,6 +175,8 @@ export function ProjectDetailPage() {
       </section>
 
       <ApplyPanel key={data.id} project={data} />
+
+      {data.isOwner && <ApplicantsPanel key={`applicants-${data.id}`} project={data} />}
 
       {data.isOwner && (
         <section className="profile-card" aria-labelledby="project-owner-heading">

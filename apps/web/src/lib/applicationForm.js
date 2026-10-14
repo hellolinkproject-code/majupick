@@ -5,19 +5,29 @@ export const APPLICATION_LIMITS = Object.freeze({ coverLetter: 2000, durationDay
 
 /** 지원 결과(RFP 3.2.4)의 화면 이름. */
 export const APPLICATION_STATUS_LABELS = Object.freeze({
-  PENDING: '검토중',
-  ACCEPTED: '수락',
-  REJECTED: '거절',
+  PENDING: '검토 대기',
+  ACCEPTED: '선정됨',
+  REJECTED: '거절됨',
 });
 
-/** 거절 사유(D-49 제안)의 화면 이름. */
+/** 지원자 본인에게 보이는 거절 사유(D-49 제안). 직접 거절과 자동 거절을 구분한다. */
 export const REJECT_REASON_LABELS = Object.freeze({
   MANUAL: '의뢰인이 거절했습니다.',
-  OTHER_ACCEPTED: '다른 지원자가 선정되었습니다.',
-  PROJECT_CLOSED: '모집이 마감되었습니다.',
+  OTHER_ACCEPTED: '다른 지원자가 선정되어 자동으로 거절되었습니다.',
+  PROJECT_CLOSED: '모집이 마감되어 자동으로 거절되었습니다.',
   NEGOTIATION_FAILED: '금액 합의가 이루어지지 않았습니다.',
-  PROJECT_CANCELLED: '프로젝트가 취소되었습니다.',
-  PROJECT_DELETED: '프로젝트가 삭제되었습니다.',
+  PROJECT_CANCELLED: '프로젝트가 취소되어 자동으로 거절되었습니다.',
+  PROJECT_DELETED: '프로젝트가 삭제되어 자동으로 거절되었습니다.',
+});
+
+/** 의뢰인(소유자) 화면의 거절 구분. */
+export const OWNER_REJECT_REASON_LABELS = Object.freeze({
+  MANUAL: '직접 거절',
+  OTHER_ACCEPTED: '자동 거절 · 다른 지원자 선정',
+  PROJECT_CLOSED: '자동 거절 · 모집 마감',
+  NEGOTIATION_FAILED: '금액 합의 결렬',
+  PROJECT_CANCELLED: '자동 거절 · 프로젝트 취소',
+  PROJECT_DELETED: '자동 거절 · 프로젝트 삭제',
 });
 
 export const emptyApplicationForm = () => ({

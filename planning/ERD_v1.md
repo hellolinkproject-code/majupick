@@ -393,7 +393,7 @@ erDiagram
 
 제약·인덱스:
 - **UNIQUE `(project_id, freelancer_id)`**: 동일 프로젝트 중복 지원 방지(A-29)
-- **부분 UNIQUE `(project_id) WHERE status = 'ACCEPTED'`**: 프로젝트당 수락 1명(A-33). 금액 결렬 시 수락 지원이 `REJECTED`로 바뀌므로 다음 수락이 가능하다
+- **부분 UNIQUE `(project_id) WHERE status = 'ACCEPTED'`**: 프로젝트당 수락 1명(A-33). 금액 결렬 시 수락 지원이 `REJECTED`로 바뀌므로 다음 수락이 가능하다 (STEP 06-B 구현: `applications_one_accepted_per_project`, §7.7)
 - CHECK `status <> 'ACCEPTED' OR (offer_amount IS NOT NULL AND offer_status IS NOT NULL)`: 수락에는 반드시 제안 금액이 있다
 - 인덱스 `(project_id, status)`: 지원 관리, 일괄 거절 대상 조회
 - 인덱스 `(freelancer_id, created_at DESC)`: 내 지원 현황
@@ -639,6 +639,18 @@ erDiagram
 | 이번에 만들지 않은 것 | `offer_amount`·`offer_status`·`offered_at`·`offer_responded_at`, CHECK "수락이면 제안 금액 필수", 부분 UNIQUE `(project_id) WHERE status = 'ACCEPTED'`. 수락·금액 합의(06-B·계약 단계)에서 NULL 허용 컬럼 추가 마이그레이션으로 붙인다(기존 행에 영향 없음). D-92 |
 | 적용 | 적용 전 `prisma migrate diff`로 SQL을 만들어 검토 → `workbridge_dev`(`db:migrate:deploy`), `workbridge_test`(`db:migrate:test`). `migrate dev`·`reset`·`push`는 쓰지 않았다. 적용 전후 `users`·`projects`·`social_accounts` 행 수와 내용 해시가 같음을 확인(개발 DB 사용자 8·프로젝트 2·Google 연결 1). CHECK 제약 수 5 → 9 |
 | 검증 | `prisma migrate diff --from-config-datasource --to-schema`: "No difference detected". `pg_constraint`·`pg_indexes`·`pg_enum`에서 제약·FK(RESTRICT)·인덱스·enum 값을 DB 테스트로 확인(`applications.integration.test.js`). PostgreSQL 18은 NOT NULL도 `pg_constraint`(`contype = 'n'`)에 기록하므로 검사에서 제외 |
+
+### 7.7 STEP 06-B 지원자 선정 (2026-10-14)
+
+| 항목 | 내용 |
+|---|---|
+| 마이그레이션 | `apps/api/prisma/migrations/20261014120000_application_selection/migration.sql` |
+| 추가 | 부분 UNIQUE 인덱스 `applications_one_accepted_per_project (project_id) WHERE status = 'ACCEPTED'` 1개(§3.8, §5 #2, A-33). Prisma `partialIndexes` 미리보기 기능으로 `schema.prisma`에도 같은 인덱스를 적어 두어 스키마와 DB가 어긋나지 않는다 |
+| 바꾸지 않은 것 | 테이블·컬럼·enum·기존 제약·기존 행. 새 테이블 없음, 새 상태 값 없음(프로젝트는 기존 `CONTRACTING`, 지원은 기존 `ACCEPTED`·`REJECTED`와 `reject_reason` `OTHER_ACCEPTED`·`MANUAL` 사용). `DROP`·`TRUNCATE`·데이터 삭제 없음 |
+| 역할 | 1차 방어는 선정 트랜잭션의 프로젝트 행 `FOR UPDATE` 잠금이다(DEC-01). 이 인덱스는 잠금을 거치지 않는 쓰기(다른 코드·수동 SQL)가 생겨도 두 번째 `ACCEPTED`를 DB에서 막는 2차 방어이고, 서버는 위반(P2002)을 409 `INVALID_STATE_TRANSITION`으로 바꾼다 |
+| 적용 | 적용 전 두 DB 모두 프로젝트당 `ACCEPTED` 2건 이상인 행이 없음을 확인 → `prisma migrate diff`로 SQL 생성·검토 → `workbridge_dev`(`db:migrate:deploy`), `workbridge_test`(`db:migrate:test`) → `db:generate`. `migrate dev`·`reset`·`push`는 쓰지 않았다. 개발 DB 사용자 8·프로젝트 2·지원 0·Google 연결 1 그대로 |
+| 검증 | `prisma migrate diff --from-migrations --to-schema --exit-code`: 차이 없음. DB 테스트(`applicationDecisions.integration.test.js`)가 `pg_indexes`에서 인덱스 정의(`UNIQUE … WHERE status = 'ACCEPTED'`)를 확인하고, 트랜잭션을 거치지 않고 두 번째 `ACCEPTED`를 직접 쓰면 P2002로 거부되는지 확인 |
+| 아직 만들지 않은 것 | `offer_amount`·`offer_status`·`offered_at`·`offer_responded_at`과 CHECK "수락이면 제안 금액 필수". 합의 금액은 계약 단계에서 다루므로(D-97) 그때 NULL 허용 컬럼으로 추가한다. `notifications` 테이블은 06-C(D-98) |
 
 ### 7.2 설계와 다른 점과 이유
 

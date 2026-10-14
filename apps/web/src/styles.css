@@ -756,6 +756,104 @@ a {
   font-size: 0.9375rem;
 }
 
+.application-item__result {
+  margin: 0;
+  font-size: 0.875rem;
+  color: #b91c1c;
+}
+
+.application-item__result--accepted {
+  color: #047857;
+}
+
+.applicants-panel {
+  word-break: keep-all;
+}
+
+.applicants-panel__summary {
+  margin: 0 0 0.75rem;
+  color: #4b5563;
+}
+
+.applicants-panel__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.applicants-panel__filters .button[aria-pressed='true'] {
+  color: #fff;
+  background: #2563eb;
+  border-color: #2563eb;
+}
+
+.applicants-panel__notice {
+  margin-bottom: 0.75rem;
+}
+
+.applicant-list {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0.75rem 0;
+  padding: 0;
+  list-style: none;
+}
+
+.applicant-card {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.75rem;
+}
+
+.applicant-card__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.applicant-card__name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.applicant-card__terms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1.25rem;
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.applicant-card__terms div {
+  display: flex;
+  gap: 0.375rem;
+  min-width: 0;
+}
+
+.applicant-card__terms dt {
+  color: #6b7280;
+}
+
+.applicant-card__terms dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.applicant-card__actions {
+  margin-top: 0;
+}
+
+.confirm-box.confirm-box--accept {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
 .project-detail__header h1 {
   margin: 0.5rem 0 0.25rem;
   overflow-wrap: anywhere;
@@ -1158,6 +1256,16 @@ a {
   }
 
   .apply-panel__confirm .project-review {
+    grid-template-columns: 1fr;
+  }
+
+  .applicant-card__actions .button,
+  .applicant-card .confirm-box .funnel-actions .button {
+    flex: 1 1 auto;
+  }
+
+  .applicant-card__terms {
+    display: grid;
     grid-template-columns: 1fr;
   }
 }

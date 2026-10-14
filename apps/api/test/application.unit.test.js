@@ -1,15 +1,19 @@
 // 지원 입력 검증·모집 상태 판단(KST)·응답 변환 단위 테스트(DB 없음).
 import { describe, expect, it } from 'vitest';
 import {
+  assertDecisionOpen,
+  assertPending,
   assertRecruiting,
   toApplication,
+  toOwnerApplication,
 } from '../src/modules/applications/application.service.js';
 import {
   COVER_LETTER_MAX_LENGTH,
   DURATION_DAYS_MAX,
   parseApplicationId,
   parseApplicationInput,
-  parseMyApplicationsQuery,
+  parseApplicationListQuery,
+  parseDecisionBody,
 } from '../src/modules/applications/application.validation.js';
 import { toProjectDetail } from '../src/modules/projects/project.service.js';
 import { toDbDate, todayKst } from '../src/modules/projects/projectStatus.js';
@@ -102,15 +106,74 @@ describe('path and query parsing', () => {
   });
 
   it('accepts page and the three statuses only', () => {
-    expect(parseMyApplicationsQuery({})).toEqual({ page: 1, status: null });
-    expect(parseMyApplicationsQuery({ page: '2', status: 'REJECTED' })).toEqual({
+    expect(parseApplicationListQuery({})).toEqual({ page: 1, status: null });
+    expect(parseApplicationListQuery({ page: '2', status: 'REJECTED' })).toEqual({
       page: 2,
       status: 'REJECTED',
     });
     for (const status of ['WITHDRAWN', 'pending', ['PENDING', 'ACCEPTED']]) {
-      expect(errorOf(() => parseMyApplicationsQuery({ status })).status).toBe(400);
+      expect(errorOf(() => parseApplicationListQuery({ status })).status).toBe(400);
     }
-    expect(errorOf(() => parseMyApplicationsQuery({ page: '0' })).status).toBe(400);
+    expect(errorOf(() => parseApplicationListQuery({ page: '0' })).status).toBe(400);
+  });
+
+  it('takes no body for accept and reject and refuses an offer amount for now', () => {
+    expect(parseDecisionBody(undefined)).toEqual({});
+    expect(parseDecisionBody({})).toEqual({});
+    expect(parseDecisionBody({ offerAmount: '2800000' })).toEqual({
+      offerAmount: '합의 금액 제시는 계약 단계에서 제공합니다.',
+    });
+    expect(Object.keys(parseDecisionBody({ status: 'ACCEPTED', reason: 'x' })).sort()).toEqual([
+      'reason',
+      'status',
+    ]);
+    expect(parseDecisionBody([])).toHaveProperty('body');
+  });
+});
+
+describe('decision rules (D-34 RFP, D-95)', () => {
+  const project = (overrides = {}) => ({
+    status: 'RECRUITING',
+    recruitStartDate: null,
+    recruitEndDate: toDbDate('2026-10-20'),
+    deletedAt: null,
+    ...overrides,
+  });
+
+  it('allows selecting only while actually recruiting, through 23:59 KST of the deadline', () => {
+    const lastMoment = todayKst(new Date('2026-10-20T14:59:59.999Z'));
+    const nextDay = todayKst(new Date('2026-10-20T15:00:00.000Z'));
+    expect(() => assertDecisionOpen(project(), lastMoment, '선정')).not.toThrow();
+    expect(errorOf(() => assertDecisionOpen(project(), nextDay, '선정'))).toMatchObject({
+      status: 409,
+      code: 'INVALID_STATE_TRANSITION',
+      details: { projectStatus: 'CLOSED' },
+    });
+    const scheduledButStarted = project({
+      status: 'SCHEDULED',
+      recruitStartDate: toDbDate('2026-10-15'),
+    });
+    expect(() => assertDecisionOpen(scheduledButStarted, '2026-10-15', '거절')).not.toThrow();
+  });
+
+  it('refuses closed, contract-stage and cancelled projects with their own status', () => {
+    for (const status of ['CLOSED', 'CONTRACTING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']) {
+      expect(errorOf(() => assertDecisionOpen(project({ status }), '2026-10-14', '선정'))).toEqual(
+        expect.objectContaining({ status: 409, details: { projectStatus: status } }),
+      );
+    }
+  });
+
+  it('only decides pending applications', () => {
+    expect(() => assertPending({ status: 'PENDING' }, '선정')).not.toThrow();
+    expect(errorOf(() => assertPending({ status: 'ACCEPTED' }, '거절'))).toMatchObject({
+      status: 409,
+      details: { applicationStatus: 'ACCEPTED' },
+    });
+    expect(errorOf(() => assertPending({ status: 'REJECTED' }, '선정'))).toMatchObject({
+      status: 409,
+      details: { applicationStatus: 'REJECTED' },
+    });
   });
 });
 
@@ -199,6 +262,43 @@ describe('response shapes', () => {
       '2026-10-14',
     );
     expect(deleted.project).toMatchObject({ isDeleted: true, publicStatus: 'CLOSED' });
+  });
+
+  it('adds the public profile and the allowed actions for the project owner', () => {
+    const withFreelancer = {
+      ...application,
+      freelancer: {
+        id: 11,
+        name: '박프리',
+        role: 'FREELANCER',
+        profileImageUrl: null,
+        bio: null,
+        clientProfile: null,
+        freelancerProfile: {
+          mainCategory: 'WEB',
+          careerYears: 3,
+          hourlyRate: 50000n,
+          portfolioUrl: null,
+          techStacks: [],
+        },
+      },
+    };
+    const owner = toOwnerApplication(withFreelancer, '2026-10-20');
+    expect(owner.availableActions).toEqual(['ACCEPT', 'REJECT']);
+    expect(owner.freelancer).toMatchObject({ id: 11, name: '박프리', role: 'FREELANCER' });
+    expect(
+      JSON.stringify(owner, (_k, v) => (typeof v === 'bigint' ? v.toString() : v)),
+    ).not.toMatch(/hourlyRate|email/);
+    expect(toOwnerApplication(withFreelancer, '2026-10-21').availableActions).toEqual([]);
+    expect(
+      toOwnerApplication({ ...withFreelancer, status: 'REJECTED' }, '2026-10-20').availableActions,
+    ).toEqual([]);
+    expect(
+      toOwnerApplication(
+        { ...withFreelancer, project: { ...projectRow, status: 'CONTRACTING' } },
+        '2026-10-20',
+      ).availableActions,
+    ).toEqual([]);
   });
 
   it('adds myApplication and applicant locks to the project detail only when given', () => {

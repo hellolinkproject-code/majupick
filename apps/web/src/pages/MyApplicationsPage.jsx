@@ -1,4 +1,4 @@
-import { Link, useLocation, useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { NoticeCard, StatusBadge } from '../components/project/ProjectBits.jsx';
 import { fetchMyApplications } from '../lib/applicationApi.js';
@@ -6,6 +6,7 @@ import { APPLICATION_STATUS_LABELS, REJECT_REASON_LABELS } from '../lib/applicat
 import { parseApiError } from '../lib/authApi.js';
 import { formatWon } from '../lib/profileForm.js';
 import { formatDay, formatPeriod, toKstDay } from '../lib/projectForm.js';
+import { useFlashNotice } from '../lib/useFlashNotice.js';
 import { useSessionStore } from '../stores/useSessionStore.js';
 
 function pageFrom(searchParams) {
@@ -49,9 +50,17 @@ function ApplicationItem({ application }) {
         내 제안 {formatWon(application.proposedAmount)} ·{' '}
         {application.proposedDurationDays.toLocaleString('ko-KR')}일
       </p>
+      {application.status === 'ACCEPTED' && (
+        <p className="application-item__result application-item__result--accepted">
+          의뢰인이 이 지원을 선정했습니다
+          {application.decidedAt && ` (${formatDay(toKstDay(application.decidedAt))})`}. 계약 체결은
+          별도 단계에서 진행됩니다.
+        </p>
+      )}
       {application.status === 'REJECTED' && application.rejectReason && (
-        <p className="project-list__meta">
+        <p className="application-item__result">
           {REJECT_REASON_LABELS[application.rejectReason] ?? application.rejectReason}
+          {application.decidedAt && ` (${formatDay(toKstDay(application.decidedAt))})`}
         </p>
       )}
       <details className="application-item__letter">
@@ -62,10 +71,13 @@ function ApplicationItem({ application }) {
   );
 }
 
-/** APP-04 내 지원 현황(프리랜서, A-30·A-35). 최신 지원순 10개씩. 결과는 서버 기준이라 새로고침해도 같다. */
+/**
+ * APP-04 내 지원 현황(프리랜서, A-30·A-35). 최신 지원순 10개씩. 결과(검토 대기·선정됨·거절됨)는
+ * 서버 기준이라 새로고침해도 같다. 처리된 지원도 목록에 남는다.
+ */
 export function MyApplicationsPage() {
   const role = useSessionStore((state) => state.user?.role);
-  const location = useLocation();
+  const notice = useFlashNotice();
   const [searchParams, setSearchParams] = useSearchParams();
   const page = pageFrom(searchParams);
   const list = useQuery({
@@ -153,9 +165,9 @@ export function MyApplicationsPage() {
           프로젝트 찾기
         </Link>
       </div>
-      {location.state?.notice && (
+      {notice && (
         <p className="form-success" role="status">
-          {location.state.notice}
+          {notice}
         </p>
       )}
       {body}

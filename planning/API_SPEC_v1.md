@@ -478,8 +478,8 @@
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
 | APP-01 | POST | `/projects/:projectId/applications` | FREELANCER +프로필 | A-29, A-36① | 구현 (STEP 06-A, 알림 ①은 06-C) |
-| APP-02 | GET | `/projects/:projectId/applications` | 프로젝트 소유자 | A-31 | 설계 (06-B) |
-| APP-03 | GET | `/applications/:applicationId` | 작성자 또는 프로젝트 소유자 | A-31, A-35 | 일부 구현 (STEP 06-A 작성자만, 소유자는 06-B) |
+| APP-02 | GET | `/projects/:projectId/applications` | 프로젝트 소유자 | A-31 | 구현 (STEP 06-B) |
+| APP-03 | GET | `/applications/:applicationId` | 작성자 또는 프로젝트 소유자 | A-31, A-35 | 구현 (STEP 06-A 작성자, 06-B 소유자) |
 | APP-04 | GET | `/me/applications` | FREELANCER | A-30, A-35 | 구현 (STEP 06-A) |
 
 **APP-01 지원서 제출**
@@ -513,7 +513,7 @@
 | 5 | APP-01 동시성 | 미정 | 프로젝트 행 `FOR SHARE` 잠금 트랜잭션. 수정·삭제·(이후)수락·마감은 `FOR UPDATE`라 서로 기다린 뒤 최신 상태로 판단. 삭제·계약 단계 전환과 동시에 들어온 지원은 404/409 | D-91 |
 | 6 | APP-01 알림 ① | 지원 생성과 한 트랜잭션 | **미구현.** `notifications` 테이블이 없음. 06-C에서 같은 트랜잭션 안에 추가(코드에 위치 표시). 이전 지원에 소급 생성하지 않음 | D-94 |
 | 7 | `Application` 응답 | `id, projectId, project, freelancer, coverLetter, proposedAmount, proposedDurationDays, status, rejectReason, offerAmount, offerStatus, contractId?, createdAt` | `id, projectId, project{ id, title, category, budget, recruitStartDate, recruitEndDate, publicStatus, isDeleted }, coverLetter, proposedAmount, proposedDurationDays, status, rejectReason, decidedAt, createdAt, updatedAt`. `freelancer`는 본인이라 생략(APP-02에서 추가), `offer*`·`contractId`는 수락·계약 단계. 의뢰인 정보·이메일·`freelancerId` 없음. 삭제된 프로젝트는 `isDeleted: true`, `publicStatus: CLOSED` | D-93 |
-| 8 | APP-03 | 작성자 또는 소유자 | **작성자만.** 남의 지원·의뢰인(소유자 포함)·형식 오류는 모두 404 | D-93, §1.3 |
+| 8 | APP-03 | 작성자 또는 소유자 | **작성자만.** 남의 지원·의뢰인(소유자 포함)·형식 오류는 모두 404. STEP 06-B에서 소유자 응답 추가(§8.1 #3) | D-93, §1.3 |
 | 9 | APP-04 쿼리 | `status`, `page` | 같음. `status`는 `PENDING`·`ACCEPTED`·`REJECTED`(그 밖 400), `page` 1부터, 10개씩 최신 지원순. 범위 밖 페이지는 200 + 빈 목록. 개수와 목록은 REPEATABLE READ 한 스냅샷. 의뢰인 403 `FORBIDDEN` | PRJ-05와 같은 규칙 |
 | 10 | PRJ-02 | `myApplication?` | 로그인한 프리랜서에게만 `myApplication: { id, status, rejectReason, createdAt } \| null`. 비로그인·의뢰인에게는 키가 없음. `applicantCount`는 결과와 무관한 전체 지원 수. 취소된 프로젝트는 소유자와 그 지원자만 200 | D-93 |
 | 11 | PRJ-03 | 409 `FIELD_LOCKED`(D-06) | 대기·수락 지원이 있으면 예산·마감일을 바꾸면 409 `FIELD_LOCKED`(같은 값은 허용). 소유자 응답의 `lockedFields`에 `budget`·`recruitEndDate` 추가 | D-06, D-92 |
@@ -530,8 +530,8 @@
 
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
-| DEC-01 | POST | `/applications/:applicationId/accept` | 프로젝트 소유자 | A-25, A-32, A-33, A-36②③, B-04 | 설계 |
-| DEC-02 | POST | `/applications/:applicationId/reject` | 프로젝트 소유자 | A-32, A-36④ | 설계 |
+| DEC-01 | POST | `/applications/:applicationId/accept` | 프로젝트 소유자 | A-25, A-32, A-33, A-36②③, B-04 | 구현 (STEP 06-B 선정·자동 거절. 합의 금액 제시는 계약 단계, 알림 ②③은 06-C) |
+| DEC-02 | POST | `/applications/:applicationId/reject` | 프로젝트 소유자 | A-32, A-36④ | 구현 (STEP 06-B, 알림 ④는 06-C) |
 
 **DEC-01 지원 수락 + 합의 금액 제시**
 - 요청: `{ "offerAmount": "2800000" }` (기본값은 지원서의 예상 단가, D-12 제안)
@@ -548,6 +548,30 @@
 - 요청: 본문 없음 → 처리: `PENDING` → `REJECTED(MANUAL)` + 알림 ④ (한 트랜잭션)
 - 응답 200: `{ data: Application }`
 - 오류: 403, 404, 409 `INVALID_STATE_TRANSITION`
+
+### 8.1 STEP 06-B 구현 내용과 명세 대비 차이 (APP-02, APP-03 소유자, DEC-01·02)
+
+구현: `apps/api/src/modules/applications/`(`application.service.js`의 `listForOwner`·`getForViewer`·`accept`·`reject`, `application.validation.js`의 `parseDecisionBody`, `applications.router.js`). 화면: `apps/web/src/components/application/ApplicantsPanel.jsx`(프로젝트 상세의 "지원자 관리"), `pages/MyProjectsPage.jsx`("지원자 N명 관리" 링크), `pages/MyApplicationsPage.jsx`·`components/application/ApplyPanel.jsx`(프리랜서 결과 표시). 테스트: `apps/api/test/application.unit.test.js`, `apps/api/test/db/applicationDecisions.integration.test.js`(실제 PostgreSQL 동시성 포함), `apps/web/src/app/applicantManagement.test.jsx`, `applicationFlow.test.jsx`. 마이그레이션 1개(ERD_v1 §7.7). 모든 항목은 제안(D-95~D-98)이며 확정되지 않았다.
+
+| # | 항목 | 명세 | 구현 | 근거 |
+|---|---|---|---|---|
+| 1 | APP-02 권한 | 프로젝트 소유자 | 로그인 401 → 역할 `ROLE_REQUIRED` → 프리랜서 403 `FORBIDDEN` → 프로젝트 없음·삭제 404 → 남의 프로젝트 403 `FORBIDDEN`(남의 **취소된** 프로젝트는 PRJ-02처럼 404). 취소된 내 프로젝트는 읽기만 가능 | D-96, §1.3 |
+| 2 | APP-02 응답 | `{ data: Application[], pagination }` | 같음 + `counts: { total, PENDING, ACCEPTED, REJECTED }`(필터와 무관한 프로젝트 전체 개수). 항목은 §7.1 #7의 `Application` + `freelancer`(PublicUser, 이메일·희망 단가 없음) + `availableActions`(`ACCEPT`·`REJECT` 또는 빈 배열). 10개씩, 최신 지원순 + `id` 내림차순(같은 시각도 순서 고정). 개수와 목록은 REPEATABLE READ 한 스냅샷. `status` 오류 400, 범위 밖 페이지 200 + 빈 목록 | D-96 |
+| 3 | APP-03 소유자 | 작성자 또는 소유자 | 작성자는 §7.1과 같은 응답, 소유자는 APP-02 항목과 같은 응답. 남의 프로젝트 의뢰인·다른 프리랜서·삭제된 프로젝트(소유자)는 404 | D-93, D-96 |
+| 4 | DEC 요청 본문 | DEC-01 `{ offerAmount }`(D-12) | **본문 없음.** `offerAmount`를 보내면 400 `VALIDATION_ERROR`("합의 금액 제시는 계약 단계에서 제공합니다."), 그 밖의 키도 400. 지원서의 `proposedAmount`는 계약 금액이 아니며 이번 단계에서 금액을 확정하지 않는다. `offer_*` 열은 아직 없다 | D-97, D-11, D-12 |
+| 5 | DEC 확인 순서 | 미정 | 로그인 401 → 역할 → 의뢰인 403 `FORBIDDEN` → 소유자(아니면 404, 존재를 숨김) → 프로젝트 유효(삭제 404) → 선정 가능 상태 409 → 지원이 그 프로젝트 소속(404) → `PENDING` 409 → (선정) 기존 선정 없음 409 → 본문 400 | D-95 |
+| 6 | 선정 가능 상태 | `RECRUITING` 확인 | 저장값이 아니라 `effectiveStatus`(D-83)가 `RECRUITING`일 때만. 마감일 당일 KST 23:59:59.999까지 가능, 다음 날 00:00부터 409. 저장값 `SCHEDULED`라도 시작일이 지났으면 가능. 마감 후 대기 지원은 06-C의 일괄 거절(A-34)에서 처리 | D-34(사용자가 RFP안 선택, 제안 유지), D-95 |
+| 7 | 409 `details` | `currentStatus` | 소유자에게만 보내는 오류라 내부 상태를 그대로 준다: 프로젝트 상태 문제는 `projectStatus`(`CANCELLED`·`CONTRACTING`·`IN_PROGRESS`·`COMPLETED`·`SCHEDULED`·`CLOSED`), 지원 상태 문제는 `applicationStatus`(`ACCEPTED`·`REJECTED`), 기존 선정은 `acceptedApplicationId` | D-95 |
+| 8 | DEC-01 처리 | 프로젝트 잠금 → 대상 `ACCEPTED` → 나머지 `REJECTED(OTHER_ACCEPTED)` → `CONTRACTING`·`closed_at` → 알림 | 같은 순서, 한 트랜잭션. 조건부 갱신(`WHERE status = 'PENDING'`)이라 이미 거절된 지원의 사유·`decided_at`은 바뀌지 않는다. `offer_status`는 없음(#4). 알림 ②③은 **미구현**(06-C, 위치는 `afterDecision` 훅) | D-54, D-98 |
+| 9 | DEC-01 응답 | `{ data: { application, autoRejectedCount } }` | 같음. `application`은 소유자용 응답(#2 항목) | - |
+| 10 | DEC-02 처리 | `PENDING` → `REJECTED(MANUAL)` + 알림 ④ | 같음. 사유 입력은 받지 않는다(D-49 `MANUAL` 고정). 다른 지원과 프로젝트 상태는 바꾸지 않는다. 선정된 지원 거절 409, 같은 지원 다시 거절 409. 알림 ④ **미구현**(06-C) | D-49, D-98 |
+| 11 | 동시성 | "동시 수락 경합 409" | 프로젝트 행 `FOR UPDATE` 후 판단. 같은 프로젝트의 두 지원 동시 선정 → 200 1건 + 409 1건, 5건 동시 → 선정 1·거절 4. 선정과 지원(APP-01 `FOR SHARE`)이 겹치면 대기 지원이 남지 않는다. 잠금을 거치지 않는 쓰기가 생겨도 부분 UNIQUE 인덱스(프로젝트당 `ACCEPTED` 1건)가 막고, 위반(P2002)은 409로 바꾼다 | D-54, ERD_v1 §7.7 |
+| 12 | 선정 후 | A-25 `CONTRACTING` | 새 지원 409, 다른 지원 선정·거절 409, 예산·마감일 등 수정 409 `FIELD_LOCKED`, 삭제 409, 공개 상태 `CLOSED`(검색·상세). 프로젝트 저장 상태는 `CONTRACTING`만 사용(새 상태 없음) | A-25, A-26, D-03 |
+| 13 | 응답 캐시·GET | - | 모든 API `Cache-Control: no-store`. APP-02·APP-03은 DB를 바꾸지 않는다(D-83) | D-83 |
+
+- 화면: 프로젝트 상세(`/projects/:id`)의 "지원자 관리"(소유자에게만, `#applicants`로 바로 이동). 총 지원자·상태별 개수, 상태 필터(전체·검토 대기·선정됨·거절됨), 지원자 카드(공개 프로필 링크, 상태 배지와 소유자용 처리 사유, 경력·기술, 제안 금액·예상 기간·지원일·처리일, 자기소개 펼쳐 보기), "제안 금액은 … 최종 계약 금액이 아닙니다" 안내, 10개씩 페이지 이동. 버튼은 `availableActions`로만 그린다.
+- 선정·거절은 확인 단계를 거친다. 선정 확인에는 "이 지원자를 선정하면 다른 대기 지원은 자동으로 거절됩니다."와 지금 대기 중인 다른 지원 수를 보여 준다. 요청 중에는 모든 처리 버튼이 잠기고(더블 클릭 방지), 서버 200을 받은 뒤에만 "○○님을 선정했습니다. 다른 대기 지원 N건은 자동으로 거절되었습니다."를 띄운다. 성공·실패 모두 목록·상세·내 프로젝트·검색 캐시를 새로 받아 새로고침해도 서버 결과가 그대로 보인다.
+- 내 프로젝트 목록 각 항목에 "지원자 N명 관리" 링크.
 
 ---
 

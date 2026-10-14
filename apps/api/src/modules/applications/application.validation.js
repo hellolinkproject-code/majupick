@@ -5,6 +5,7 @@ import { parsePage } from '../projects/project.validation.js';
 export const COVER_LETTER_MAX_LENGTH = 2000;
 export const DURATION_DAYS_MAX = 3650;
 export const MY_APPLICATIONS_PAGE_SIZE = 10;
+export const PROJECT_APPLICATIONS_PAGE_SIZE = 10;
 export const APPLICATION_STATUSES = Object.freeze(['PENDING', 'ACCEPTED', 'REJECTED']);
 
 /** 요청 본문으로 받지 않는 값. 지원자는 토큰에서, 상태는 서버만 정한다(D-52). */
@@ -55,12 +56,30 @@ export function parseApplicationId(value) {
   throw new HttpError(404, 'NOT_FOUND', '지원 내역을 찾을 수 없습니다.');
 }
 
-/** APP-04 쿼리: page(기본 1), status(선택, 3개 값). */
-export function parseMyApplicationsQuery(query) {
+/** APP-02·APP-04 목록 쿼리: page(기본 1), status(선택, 3개 값). */
+export function parseApplicationListQuery(query) {
   const page = parsePage(query.page);
   if (query.status === undefined) return { page, status: null };
   if (APPLICATION_STATUSES.includes(query.status)) return { page, status: query.status };
   throw new HttpError(400, 'VALIDATION_ERROR', '입력값을 확인해 주세요.', {
     fields: { status: '지원 상태 값이 올바르지 않습니다.' },
   });
+}
+
+/**
+ * DEC-01·02 본문. 선정·거절은 본문 없이 보낸다. 합의 금액(offerAmount, D-11)은 계약 단계에서 다루므로
+ * 지금 보내면 조용히 무시하지 않고 400으로 알린다(지원서의 예상 단가는 계약 금액이 아니다).
+ * @returns {Record<string, string>} 항목별 오류(없으면 빈 객체)
+ */
+export function parseDecisionBody(body) {
+  if (body === undefined || body === null) return {};
+  if (typeof body !== 'object' || Array.isArray(body)) return { body: '본문 없이 요청해 주세요.' };
+  const fields = {};
+  for (const key of Object.keys(body)) {
+    fields[key] =
+      key === 'offerAmount'
+        ? '합의 금액 제시는 계약 단계에서 제공합니다.'
+        : '이 값은 보낼 수 없습니다.';
+  }
+  return fields;
 }

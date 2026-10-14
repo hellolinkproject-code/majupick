@@ -1,10 +1,11 @@
-import { Link, useLocation, useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { NoticeCard, StatusBadge } from '../components/project/ProjectBits.jsx';
 import { parseApiError } from '../lib/authApi.js';
 import { formatWon } from '../lib/profileForm.js';
 import { fetchMyProjects } from '../lib/projectApi.js';
 import { formatDay, formatPeriod, toKstDay } from '../lib/projectForm.js';
+import { useFlashNotice } from '../lib/useFlashNotice.js';
 import { useSessionStore } from '../stores/useSessionStore.js';
 
 function pageFrom(searchParams) {
@@ -15,7 +16,7 @@ function pageFrom(searchParams) {
 /** PRJ-05 내 프로젝트(의뢰인). 최신 등록순 10개씩. 검색·필터·정렬은 STEP 05-B. */
 export function MyProjectsPage() {
   const role = useSessionStore((state) => state.user?.role);
-  const location = useLocation();
+  const notice = useFlashNotice();
   const [searchParams, setSearchParams] = useSearchParams();
   const page = pageFrom(searchParams);
   const list = useQuery({
@@ -74,6 +75,14 @@ export function MyProjectsPage() {
                 {formatWon(project.budget)} ·{' '}
                 {formatPeriod(project.recruitStartDate, project.recruitEndDate)}
               </p>
+              <p className="project-list__meta">
+                <Link
+                  to={`/projects/${project.id}#applicants`}
+                  aria-label={`${project.title} 지원자 ${project.applicantCount}명 관리`}
+                >
+                  지원자 {project.applicantCount}명 관리
+                </Link>
+              </p>
             </li>
           ))}
         </ul>
@@ -110,9 +119,9 @@ export function MyProjectsPage() {
           새 프로젝트 등록
         </Link>
       </div>
-      {location.state?.notice && (
+      {notice && (
         <p className="form-success" role="status">
-          {location.state.notice}
+          {notice}
         </p>
       )}
       {body}

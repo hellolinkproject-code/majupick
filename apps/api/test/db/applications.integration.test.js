@@ -114,6 +114,7 @@ beforeAll(async () => {
     .send({ companyName: '지원테스트 주식회사', businessField: 'IT' });
   expect(clientProfile.status).toBe(200);
 
+  users.otherClient = await signup('client2', 'CLIENT');
   users.freelancer = await signup('freelancer', 'FREELANCER');
   users.other = await signup('freelancer2', 'FREELANCER');
   users.racer = await signup('freelancer3', 'FREELANCER');
@@ -540,7 +541,11 @@ describe('GET /api/me/applications and /api/applications/:id', () => {
     expect(own.status).toBe(200);
     expect(own.body.data).toMatchObject({ id, status: 'PENDING', projectId: project.id });
 
-    for (const user of [users.other, users.client]) {
+    // STEP 06-B부터 프로젝트 소유자도 열람한다(APP-03). 그 밖의 사용자는 그대로 404.
+    const owner = await getApplication(users.client, id);
+    expect(owner.status).toBe(200);
+    expect(owner.body.data.freelancer.id).toBe(users.freelancer.id);
+    for (const user of [users.other, users.otherClient]) {
       const res = await getApplication(user, id);
       expect(res.status).toBe(404);
       expect(res.body.error.code).toBe('NOT_FOUND');

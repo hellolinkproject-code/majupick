@@ -305,8 +305,8 @@ model Project {
 }
 
 // ---------------------------------------------------------------------------
-// 지원 (STEP 06-A). 수락 시 금액 제안(offer_*)과 프로젝트당 수락 1명 부분 UNIQUE는
-// 수락·계약 단계에서 새 마이그레이션으로 추가한다(ERD_v1 §3.8, §7.6).
+// 지원 (STEP 06-A, 선정·거절 06-B). 수락 시 금액 제안(offer_*)은 계약 단계에서
+// 새 마이그레이션으로 추가한다(ERD_v1 §3.8, §7.6~7.7).
 // ---------------------------------------------------------------------------
 
 model Application {
@@ -332,6 +332,8 @@ model Application {
   freelancer User    @relation(fields: [freelancerId], references: [id], onDelete: Restrict)
 
   @@unique([projectId, freelancerId])
+  /// 프로젝트당 선정(ACCEPTED) 1건(A-33). 수락 트랜잭션의 행 잠금이 뚫려도 DB가 막는다
+  @@unique([projectId], map: "applications_one_accepted_per_project", where: raw("status = 'ACCEPTED'"))
   @@index([projectId, status])
   @@index([freelancerId, createdAt(sort: Desc)])
   @@map("applications")

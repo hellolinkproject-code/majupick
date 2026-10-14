@@ -8,6 +8,7 @@ import {
   APPLICATION_LIMITS,
   APPLICATION_STATUS_LABELS,
   emptyApplicationForm,
+  REJECT_REASON_LABELS,
   toApplicationPayload,
   validateApplicationForm,
 } from '../../lib/applicationForm.js';
@@ -37,6 +38,10 @@ function AppliedState({ application }) {
         지원 상태: {APPLICATION_STATUS_LABELS[application.status] ?? application.status} · 지원일{' '}
         {formatDay(toKstDay(application.createdAt))}
       </span>
+      {application.status === 'REJECTED' && application.rejectReason && (
+        <span>{REJECT_REASON_LABELS[application.rejectReason] ?? application.rejectReason}</span>
+      )}
+      {application.status === 'ACCEPTED' && <span>의뢰인이 이 지원을 선정했습니다.</span>}
       <span>
         <Link to="/me/applications">내 지원 현황 보기</Link>
       </span>
@@ -226,6 +231,12 @@ export function ApplyPanel({ project }) {
           setField={(field, value) => {
             setFormError('');
             setForm((prev) => ({ ...prev, [field]: value }));
+            // 고친 항목의 오류는 바로 지운다. 다시 검사는 "다음"을 누를 때 한다.
+            setErrors((prev) => {
+              if (!prev[field]) return prev;
+              const { [field]: _fixed, ...rest } = prev;
+              return rest;
+            });
           }}
         />
         <div className="funnel-actions">
