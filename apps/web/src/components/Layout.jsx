@@ -42,6 +42,13 @@ function AuthNav() {
       setIsLoggingOut(false);
       queryClient.removeQueries({ queryKey: ['me'] });
       queryClient.removeQueries({ queryKey: ['notifications'] });
+      queryClient.removeQueries({ queryKey: ['bookmarks'] });
+      queryClient.removeQueries({ queryKey: ['my-applications'] });
+      queryClient.removeQueries({ queryKey: ['my-projects'] });
+      // 상세 캐시 중 이 사용자 몫(지원 여부·북마크·소유자 필드)만 지운다. 비로그인 응답은 남겨도 된다.
+      queryClient.removeQueries({
+        predicate: (query) => query.queryKey[0] === 'project' && query.queryKey[2] === user.id,
+      });
       navigate('/', { replace: true });
     }
   }
@@ -55,7 +62,12 @@ function AuthNav() {
           <Link to="/me/projects">내 프로젝트</Link>
         </>
       )}
-      {user.role === 'FREELANCER' && <Link to="/me/applications">내 지원 현황</Link>}
+      {user.role === 'FREELANCER' && (
+        <>
+          <Link to="/me/applications">내 지원 현황</Link>
+          <Link to="/me/bookmarks">내 북마크</Link>
+        </>
+      )}
       {user.role && <NotificationBell userId={user.id} />}
       <Link to="/me">내 프로필</Link>
       <button

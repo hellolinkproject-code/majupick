@@ -9,6 +9,7 @@ import {
 
 const EXPECTED_TABLES = [
   'applications',
+  'bookmarks',
   'client_profiles',
   'freelancer_profiles',
   'freelancer_tech_stacks',

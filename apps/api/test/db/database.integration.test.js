@@ -7,6 +7,7 @@ import { getDatabaseConfig } from '../../src/config/database.js';
 
 const EXPECTED_TABLES = [
   'applications',
+  'bookmarks',
   'client_profiles',
   'freelancer_profiles',
   'freelancer_tech_stacks',

@@ -398,7 +398,7 @@
 | 2 | PRJ-01 확인 순서 | `+프로필` | 로그인(401) → 역할 선택(`ROLE_REQUIRED`) → 의뢰인(403 `FORBIDDEN`) → 프로필 완성(403 `PROFILE_INCOMPLETE` + `missingFields`) → 키·입력 검사(400) | D-78 |
 | 3 | 입력 범위 | 미정 | 제목 1~100자, 설명 1~5,000자, 카테고리 enum, 날짜 `YYYY-MM-DD`(실제 있는 날짜, KST), 예산 1~bigint 최대(숫자 문자열 또는 안전 정수, D-51), 기술 스택 1~20개(중복·없는 ID 400). 등록 시 과거 시작일·과거 마감일·마감일 < 시작일은 400 | D-47, D-77과 같은 기준 |
 | 4 | `ProjectDetail` | 소유자에게 `status` | 모든 사용자에게 `isOwner`. 소유자에게만 `status`, `availableActions`(`EDIT`·`DELETE`), `lockedFields`. 화면은 이 값으로 버튼을 보이고 숨긴다(최종 판단은 서버) | 권한 계산을 FE와 BE에 두 번 두지 않음 |
-| 5 | 아직 없는 값 | `applicantCount`, `isBookmarked`, `myApplication`, 추천 섹션 | `applicantCount`는 항상 0. 나머지는 응답에 넣지 않음. **STEP 06-A 변경:** `applicantCount`는 실제 지원 수, 프리랜서에게 `myApplication`(§7.1 #10) | 지원·북마크·추천 테이블이 아직 없음(해당 단계에서 추가) |
+| 5 | 아직 없는 값 | `applicantCount`, `isBookmarked`, `myApplication`, 추천 섹션 | `applicantCount`는 항상 0. 나머지는 응답에 넣지 않음. **STEP 06-A 변경:** `applicantCount`는 실제 지원 수, 프리랜서에게 `myApplication`(§7.1 #10). **STEP 07-A 변경:** 프리랜서에게 `isBookmarked`(§11.1 #8), 추천은 별도 API SRCH-02(§6.2) | 지원·북마크·추천 테이블이 아직 없음(해당 단계에서 추가) |
 | 6 | PRJ-02 인증 | 공개 | 토큰이 없으면 공개 응답. 토큰이 있는데 틀렸거나 만료면 401(조용히 공개 응답으로 바꾸지 않음) | FE 재발급 인터셉터가 동작하도록 |
 | 7 | PRJ-03 수정 가능 상태 | D-55 | `SCHEDULED`·`RECRUITING`·`CLOSED`만. `CONTRACTING` 이후 409 `FIELD_LOCKED`, `CANCELLED` 409 `INVALID_STATE_TRANSITION`. `CLOSED`에서 모집일 변경은 409 `FIELD_LOCKED` + `lockedFields` | D-80, D-09 |
 | 8 | PRJ-03 요청 | 부분 수정 | 바뀐 항목만 받음. 빈 요청 400, `status` 400(상태는 STAT API로만), `recruitEndDate: null` 400, `clientId` 무시. 날짜 검사는 바뀐 값에만 적용(이미 지난 기존 시작일은 그대로 둘 수 있음). 시작일을 바꾸면 `SCHEDULED`/`RECRUITING` 재계산. 기술 스택은 통째로 교체. 비소유자 403 `FORBIDDEN`, 삭제됨 404. 행을 `FOR UPDATE`로 잠그고 트랜잭션 안에서 저장 | D-80 |
@@ -418,7 +418,7 @@
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
 | SRCH-01 | GET | `/projects` | 공개 | A-19~A-23, A-26 | 구현 (STEP 05-B, §6.1) |
-| SRCH-02 | GET | `/projects/:projectId/recommendations` | 공개 | A-41, D-30 | 설계 |
+| SRCH-02 | GET | `/projects/:projectId/recommendations` | 공개 | A-41, D-30 | 구현 (STEP 07-A, §6.2) |
 | SRCH-03 | GET | `/meta/options` | 공개 | A-10, A-11, B-16, B-17 | 일부 검증(리뷰 태그 제외, §4.1) |
 
 **SRCH-01 프로젝트 목록**
@@ -463,10 +463,27 @@
 
 - 화면 `/projects`(비로그인 가능): 검색어(300ms 지연), 카테고리·예산(500ms 지연)·기술 스택·마감일·모집 상태 필터, 정렬, 총 개수, 카드, 페이지 번호, 조건 초기화, 불러오는 중·오류(다시 시도)·빈 결과·범위 밖 페이지 안내. 모든 조건은 주소 쿼리에 있어 새로고침·뒤로 가기·공유 링크에서 복원된다. 조건이 바뀌면 1페이지로 돌아간다. 768px 이하에서는 필터를 "필터 펼치기" 버튼으로 접는다.
 - TanStack Query 키는 정규화한 조건(`['project-search', criteria]`)이라 늦게 도착한 이전 응답이 현재 결과를 덮지 않는다. 화면이 다시 그려지기 전에 조건이 연달아 바뀌어도(입력 지연 타이머와 클릭 등) 앞선 변경을 잃지 않는다.
-- 지원·북마크·계약·결제 버튼은 카드·상세에 없다(해당 기능 단계에서 추가). **STEP 06-A 변경:** 상세에 지원 영역 추가(§7.1).
+- 지원·북마크·계약·결제 버튼은 카드·상세에 없다(해당 기능 단계에서 추가). **STEP 06-A 변경:** 상세에 지원 영역 추가(§7.1). **STEP 07-A 변경:** 상세에 북마크 버튼(§11.1)과 하단 추천 영역(§6.2) 추가. 검색 카드에는 아직 북마크 표시가 없다.
 
 **SRCH-02 추천 프로젝트**
 - 응답 200: `{ data: ProjectSummary[] }` (최대 4개, 같은 카테고리 + 기술 스택 겹침 순, 모집 중만, 자기 자신 제외. D-30 제안)
+
+### 6.2 STEP 07-A 구현 내용과 명세 대비 차이 (SRCH-02)
+
+구현: `apps/api/src/modules/projects/projectRecommendations.js`(순위 SQL), `project.service.js`(`recommendProjects`), `projects.router.js`. 화면: `apps/web/src/components/project/RecommendedProjects.jsx`(상세 하단), `ProjectCard.jsx`(`note`). 테스트: `apps/api/test/bookmark.unit.test.js`, `apps/api/test/db/bookmarks.integration.test.js`, `apps/web/src/app/bookmarks.test.jsx`. 새 테이블·인덱스 없음.
+
+| # | 항목 | 명세 | 구현 | 근거 |
+|---|---|---|---|---|
+| 1 | 후보 | 같은 카테고리 + 기술 겹침, 모집 중, 자기 제외 | 공개 범위(삭제·취소 제외) + 오늘(KST) 실제 모집 중(검색 `status=RECRUITING`과 같은 조건) + 자기 제외 + (같은 카테고리 **또는** 기술 스택 1개 이상 겹침) | D-105(제안) |
+| 2 | 순위 | 겹침 순 | 같은 카테고리 → 겹치는 기술 스택 수 → 최근 등록 → `id` 내림차순. 무작위 없음(같은 데이터면 같은 순서) | D-105 |
+| 3 | 개수 | 최대 4 | 최대 4. 후보가 적으면 그만큼, 없으면 `{ data: [] }` | |
+| 4 | 응답 항목 | `ProjectSummary` | 검색 카드와 같은 공개 요약(`descriptionPreview` 포함) + `match: { sameCategory, sharedTechStackCount }`. 의뢰인 정보·7개 상태·`isBookmarked`·개인 정보 없음. 금액은 문자열 | A-26, D-51 |
+| 5 | 기준 프로젝트 | 미정 | 삭제·취소·없음·잘못된 ID → 404 `NOT_FOUND`. 마감된 프로젝트는 200(상세가 공개이므로) | 상세 공개 범위 |
+| 6 | 로그인 | 공개 | 토큰을 보지 않는다. 누구에게나 같은 결과 | D-105 |
+| 7 | DB 쓰기 | - | 없음. 상태는 날짜로 계산만 한다(D-83). 순위와 본문은 같은 REPEATABLE READ 스냅샷에서 읽는다 | D-83 |
+| 8 | 응답 캐시 | - | `Cache-Control: no-store`(라우터 공통). 화면 TanStack Query 키 `['project-recommendations', id]`, 30초 신선 | |
+
+- 화면: 상세 맨 아래 "이 프로젝트와 비슷한 모집 중 프로젝트" 영역. 카드(검색 카드 재사용)에 추천 이유("같은 카테고리 · 기술 스택 2개 일치")를 덧붙인다. 불러오는 중·오류(다시 시도)·빈 결과("지금은 비슷한 조건으로 모집 중인 프로젝트가 없습니다." + 프로젝트 찾기)·404(영역 숨김). 카드를 눌러 다른 상세로 가면 맨 위로 스크롤한다. 480px 이하에서는 한 줄에 카드 하나.
 
 **SRCH-03 옵션 목록**
 - 응답 200: `{ data: { projectCategories[], businessFields[], reviewTags: { forFreelancer[], forClient[] } } }` (값 목록은 D-59, D-20)
@@ -656,13 +673,35 @@
 
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
-| BMK-01 | PUT | `/projects/:projectId/bookmark` | FREELANCER(D-31) | A-39 | 설계 |
-| BMK-02 | DELETE | `/projects/:projectId/bookmark` | FREELANCER | A-39 | 설계 |
-| BMK-03 | GET | `/me/bookmarks` | FREELANCER | A-40 | 설계 |
+| BMK-01 | PUT | `/projects/:projectId/bookmark` | FREELANCER(D-31) | A-39 | 구현 (STEP 07-A, §11.1) |
+| BMK-02 | DELETE | `/projects/:projectId/bookmark` | FREELANCER | A-39 | 구현 (STEP 07-A, §11.1) |
+| BMK-03 | GET | `/me/bookmarks` | FREELANCER | A-40 | 구현 (STEP 07-A, §11.1) |
 
 - BMK-01: 응답 204. 이미 있어도 204. 오류 403, 404(삭제된 프로젝트)
 - BMK-02: 응답 204. 없어도 204
 - BMK-03: 쿼리 `page` → `{ data: ProjectSummary[], pagination }` (삭제된 프로젝트 제외)
+
+### 11.1 STEP 07-A 구현 내용과 명세 대비 차이 (BMK-01~03, PRJ-02 `isBookmarked`)
+
+구현: `apps/api/src/modules/bookmarks/`(`bookmark.service.js`, `bookmarks.router.js`, `/api` 바로 아래), `project.service.js`(`getProject`의 `isBookmarked`). 화면: `apps/web/src/components/project/BookmarkButton.jsx`(상세), `pages/MyBookmarksPage.jsx`(`/me/bookmarks`), `lib/bookmarkApi.js`, `components/Layout.jsx`(메뉴·로그아웃). 테이블은 ERD_v1 §7.9.
+
+| # | 항목 | 명세 | 구현 | 근거 |
+|---|---|---|---|---|
+| 1 | 확인 순서 | 403 | 로그인(401) → 역할 선택(403 `ROLE_REQUIRED`) → 프리랜서(403 `FORBIDDEN`) → (추가만) 프로젝트 공개 범위(404). 프로필 완성은 요구하지 않음 | D-31, D-106(제안) |
+| 2 | 추가 대상 | 삭제 404 | 삭제·**취소**·없음·잘못된 ID 404(상세와 같은 공개 범위). 마감·계약 단계 프로젝트는 저장 가능 | D-107(제안) |
+| 3 | 멱등 | 이미 있어도 204 | `ON CONFLICT DO NOTHING`. 이미 있으면 저장 시각을 바꾸지 않는다. 동시 요청 6건도 1행(DB 테스트). 확인과 저장 사이 프로젝트 행 `FOR SHARE` 잠금 | D-107 |
+| 4 | 해제 | 없어도 204 | 본인 행만 삭제. 프로젝트가 삭제됐어도 204. 응답 본문 없음 | D-107 |
+| 5 | 목록 범위 | 삭제 제외 | 삭제 + 취소 제외(개수 포함). **행은 지우지 않는다** | D-107 |
+| 6 | 목록 항목 | `ProjectSummary` | 검색 카드와 같은 공개 요약(`descriptionPreview` 포함) + `isBookmarked: true`, `bookmarkedAt`, `myApplication: { id, status } \| null`(본인 지원). 상태는 오늘(KST) 기준 공개 상태(마감일 지나면 `CLOSED`). 의뢰인 정보·7개 상태 없음 | D-108(제안) |
+| 7 | 정렬·페이지 | `page` | 최근 저장순(`created_at DESC, project_id DESC`), 페이지당 10개, 개수와 목록은 같은 REPEATABLE READ 스냅샷. 범위 밖 페이지는 200 + 빈 `data`, `page` 형식 오류 400 | D-108 |
+| 8 | PRJ-02 `isBookmarked` | 로그인한 프리랜서 | 로그인한 프리랜서(소유자가 아닌)에게만 `true`/`false`. 비로그인·의뢰인 응답에는 키 자체가 없다 | |
+| 9 | 다른 사용자 | - | 사용자 ID를 받는 API가 없다(쿼리 `userId`는 무시). 목록·상세 모두 토큰의 사용자 기준 | |
+| 10 | DB 쓰기 | - | GET(목록·상세·추천)은 쓰지 않는다. 쓰기는 PUT·DELETE의 `bookmarks` 행뿐(프로젝트·지원·알림 불변, DB 테스트) | D-83 |
+
+- 상세 화면: 머리말 아래 북마크 버튼. 프리랜서는 "☆ 북마크하기"/"★ 북마크됨"(`aria-pressed`), 요청 중에는 "저장하는 중…"/"해제하는 중…"으로 잠긴다. 성공하면 상세 캐시를 바로 바꾸고 내 북마크 목록을 다시 받는다("내 북마크 보기" 링크). 실패하면 서버 메시지를 보여 주고 404면 상세를 다시 받는다. 비로그인은 "☆ 로그인하고 북마크하기"(로그인 후 같은 상세로 돌아옴). 의뢰인·소유자·역할 미선택에게는 없다. 지원 영역과는 따로 동작한다.
+- 세션: 상세는 세션 복원이 끝난 뒤에만 요청하고(06-A와 같음) 캐시 키에 사용자 ID가 있어 다른 사용자의 북마크 상태가 보이지 않는다. 내 북마크 키는 `['bookmarks', userId, page]`. 로그아웃하면 `['bookmarks']`, `['my-applications']`, `['my-projects']`, 그 사용자의 상세 캐시를 지운다.
+- 내 북마크 화면(`/me/bookmarks`, 로그인 필요, 프리랜서 메뉴 "내 북마크"): 카드마다 상태·카테고리·저장일·제목(상세 링크)·예산·마감일·기술 스택, 지원 안내(D-108), "북마크 해제". 불러오는 중·오류(다시 시도)·빈 목록(프로젝트 찾기)·페이지 이동. 의뢰인에게는 "프리랜서 전용 화면입니다"(API를 부르지 않음).
+- 검색 목록(SRCH-01) 카드의 `isBookmarked`는 아직 없다(공개 응답이라 토큰을 보지 않음).
 
 ---
 

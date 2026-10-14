@@ -494,6 +494,7 @@ erDiagram
 | created_at | timestamptz | - | |
 
 - 복합 PK가 중복 북마크를 막는다(A-39). 삭제된 프로젝트는 목록에서 제외한다.
+- STEP 07-A 구현에서 `project_id` FK를 CASCADE로 정하고, 목록용 인덱스 `(user_id, created_at DESC, project_id DESC)`를 더했다. 삭제·취소된 프로젝트의 행은 지우지 않고 목록에서만 거른다(§7.9, D-107 제안).
 
 ---
 
@@ -593,7 +594,7 @@ erDiagram
 | 타입 | 금액 `bigint`(`budget`, `hourly_rate`), 모집일 `date`, 그 밖의 시각 `timestamptz(3)`(UTC). `timestamp without time zone` 컬럼은 없다 |
 | 검증 | 실제 DB 카탈로그 조회 + 통합 테스트 22개(`apps/api/test/db/`) 통과 |
 
-아직 만들지 않은 테이블: ~~`applications`~~(STEP 06-A, §7.6), `contracts`, `payments`, `reviews`, `notifications`, `bookmarks`. 각 기능 단계에서 새 마이그레이션으로 추가한다(기존 마이그레이션 파일은 수정하지 않는다).
+아직 만들지 않은 테이블: ~~`applications`~~(STEP 06-A, §7.6), `contracts`, `payments`, `reviews`, ~~`notifications`~~(STEP 06-C, §7.8), ~~`bookmarks`~~(STEP 07-A, §7.9). 각 기능 단계에서 새 마이그레이션으로 추가한다(기존 마이그레이션 파일은 수정하지 않는다).
 
 ### 7.3 STEP 04-B (2026-10-13)
 
@@ -668,6 +669,20 @@ erDiagram
 | 바꾸지 않은 것 | 기존 테이블·컬럼·enum·제약·행. `DROP`·`TRUNCATE`·`UPDATE`·`DELETE` 없음. 06-C 이전에 생긴 지원·선정·거절에 대한 알림은 소급 생성하지 않는다(D-94) |
 | 적용 | `prisma migrate diff`로 SQL을 만들어 검토 후 CHECK를 더함 → 적용 전 개발 DB 지문(행 수 + 내용 해시) 기록 → `workbridge_dev`(`db:migrate:deploy`), `workbridge_test`(`db:migrate:test`) → `db:generate`. `migrate dev`·`reset`·`push`는 쓰지 않았다. 개발 DB 사용자 8·프로젝트 2·지원 0·Google 연결 1과 내용 해시가 그대로 |
 | 검증 | `prisma migrate diff --from-migrations --to-schema --exit-code`: 차이 없음. DB 테스트(`notifications.integration.test.js`)가 `event_key` 중복(P2002)과 외부·`//`·`javascript:`·`\` 링크 저장 거부를 확인 |
+
+### 7.9 STEP 07-A 북마크 (2026-10-14)
+
+| 항목 | 내용 |
+|---|---|
+| 마이그레이션 | `apps/api/prisma/migrations/20261014210000_bookmarks/migration.sql` |
+| 추가 | 테이블 `bookmarks`(`user_id`, `project_id`, `created_at timestamptz(3)`), PK `bookmarks_pkey (user_id, project_id)`, 인덱스 2개, FK 2개 |
+| PK | 복합 PK가 같은 사용자·같은 프로젝트의 두 번째 행을 막는다(A-39). 서버는 `INSERT … ON CONFLICT DO NOTHING`(`createMany skipDuplicates`)으로 저장해 재전송·동시 요청에도 1행이다 |
+| 외래키 | `user_id → users.id`, `project_id → projects.id` 모두 `ON DELETE CASCADE`(§3.13의 사용자 CASCADE, 프로젝트는 §3.12 알림과 같은 방향). 앱은 프로젝트를 소프트 삭제(D-53)하므로 프로젝트 삭제·취소로 북마크 행이 지워지지 않는다. 행이 실제로 지워지는 경우는 본인의 해제(BMK-02)와 사용자·프로젝트 행의 물리 삭제(테스트 정리)뿐이다 |
+| 인덱스 | `(user_id, created_at DESC, project_id DESC)`(내 북마크 최근 저장순, 같은 시각 순서 고정), `(project_id)`(FK·프로젝트별 조회). 사용자별 단건 확인(PRJ-02 `isBookmarked`)은 PK가 맡는다 |
+| 조회 범위 | 내 북마크(BMK-03)는 `projects.deleted_at IS NULL AND status <> 'CANCELLED'`(검색·상세와 같은 공개 범위)인 행만 보여 주고 개수에도 넣지 않는다. 행은 남는다(D-107 제안) |
+| 바꾸지 않은 것 | 기존 테이블·컬럼·enum·제약·행. `DROP`·`TRUNCATE`·`UPDATE`·`DELETE` 없음. 추천(SRCH-02)은 새 테이블·인덱스 없이 기존 `projects`·`project_tech_stacks`를 읽기만 한다 |
+| 적용 | `prisma migrate diff`로 SQL을 만들어 검토(생성문만 있음) → 적용 전 개발 DB 지문(행 수 + 내용 해시, 이번부터 `notifications` 포함) 기록 → `workbridge_dev`(`db:migrate:deploy`), `workbridge_test`(`db:migrate:test`) → `db:generate`. `migrate dev`·`reset`·`push`는 쓰지 않았다. 개발 DB 사용자 8·프로젝트 2·지원 0·Google 연결 1·알림 0과 내용 해시가 그대로 |
+| 검증 | `prisma migrate diff --from-migrations --to-schema --exit-code`: 차이 없음. DB 테스트(`bookmarks.integration.test.js`)가 두 번째 행 거부(P2002)와 `pg_indexes`의 인덱스 이름을 확인. `check-db.js`·`database.integration.test.js`의 기대 테이블 목록에 `bookmarks` 추가 |
 
 ### 7.2 설계와 다른 점과 이유
 

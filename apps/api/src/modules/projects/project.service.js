@@ -3,6 +3,7 @@ import { ACTIVE_APPLICATION_STATUSES } from '../applications/application.service
 import { CLOSE_REASONS } from '../notifications/notificationEvents.js';
 import { DATE_MESSAGES, MY_PROJECTS_PAGE_SIZE } from './project.validation.js';
 import { closeLockedProject, syncLockedProject } from './projectClosure.js';
+import { rankRecommendations } from './projectRecommendations.js';
 import { buildSearchWhere, SEARCH_PAGE_SIZE, searchSegments } from './projectSearch.js';
 import {
   DELETABLE_STATUSES,
@@ -11,6 +12,7 @@ import {
   fromDbDate,
   initialRecruitStatus,
   PUBLIC_PROJECT_WHERE,
+  publicStatusWhere,
   toDbDate,
   todayKst,
   toPublicStatus,
@@ -101,7 +103,7 @@ function toMyApplication(application) {
 
 /**
  * @param {object} viewer activeApplicantCount: 소유자 화면의 잠금 계산용,
- *   myApplication: 로그인한 프리랜서에게만 넣는다(undefined면 키 자체를 넣지 않는다)
+ *   myApplication·isBookmarked: 로그인한 프리랜서에게만 넣는다(undefined면 키 자체를 넣지 않는다)
  */
 export function toProjectDetail(project, viewerId = null, viewer = {}) {
   const isOwner = viewerId !== null && viewerId === project.clientId;
@@ -120,6 +122,7 @@ export function toProjectDetail(project, viewerId = null, viewer = {}) {
     ...(viewer.myApplication !== undefined && {
       myApplication: toMyApplication(viewer.myApplication),
     }),
+    ...(viewer.isBookmarked !== undefined && { isBookmarked: viewer.isBookmarked }),
   };
 }
 
@@ -139,12 +142,12 @@ async function countActiveApplications(db, projectIds) {
 }
 
 /** 조회 응답용: 마감일·시작일이 지난 상태를 DB에 쓰지 않고 반영한다(D-83). */
-function withCurrentStatus(project, today) {
+export function withCurrentStatus(project, today) {
   return { ...project, status: effectiveStatus(project, today) };
 }
 
 /** 검색 목록 카드. 공개 요약 + 설명 앞부분. 의뢰인 정보·소유자 전용 필드는 넣지 않는다. */
-function toSearchItem(project) {
+export function toSearchItem(project) {
   const text = project.description.replace(/\s+/g, ' ').trim();
   return {
     ...toSummary(project),
@@ -155,7 +158,7 @@ function toSearchItem(project) {
   };
 }
 
-const searchSelect = Object.freeze({
+export const searchSelect = Object.freeze({
   id: true,
   title: true,
   description: true,
@@ -170,7 +173,7 @@ const searchSelect = Object.freeze({
   _count: applicationCount,
 });
 
-const pagination = (page, pageSize, totalCount) => ({
+export const pagination = (page, pageSize, totalCount) => ({
   page,
   pageSize,
   totalCount,
@@ -290,7 +293,8 @@ export function createProjectService({ prisma, afterClose }) {
 
     /**
      * PRJ-02. 삭제된 프로젝트는 누구에게나 404, 취소된 프로젝트는 소유자·지원자만 본다. DB는 바꾸지 않는다.
-     * 로그인한 프리랜서에게는 본인 지원 상태(myApplication), 소유자에게는 지원자에 따른 잠금 항목을 준다.
+     * 로그인한 프리랜서에게는 본인 지원 상태(myApplication)·북마크 여부(isBookmarked),
+     * 소유자에게는 지원자에 따른 잠금 항목을 준다.
      */
     async getProject(projectId, viewerId = null) {
       const project = await prisma.project.findFirst({
@@ -313,9 +317,13 @@ export function createProjectService({ prisma, afterClose }) {
               where: { projectId },
               select: { id: true, status: true, rejectReason: true, createdAt: true },
             },
+            bookmarks: { where: { projectId }, select: { projectId: true } },
           },
         });
-        if (user?.role === 'FREELANCER') viewer.myApplication = user.applications[0] ?? null;
+        if (user?.role === 'FREELANCER') {
+          viewer.myApplication = user.applications[0] ?? null;
+          viewer.isBookmarked = user.bookmarks.length > 0;
+        }
       }
       if (project.status === 'CANCELLED' && !isOwner && !viewer.myApplication) throw notFound();
       return toProjectDetail(withCurrentStatus(project, todayKst(now())), viewerId, viewer);
@@ -532,6 +540,53 @@ export function createProjectService({ prisma, afterClose }) {
       return {
         data: projects.map((project) => toSearchItem(withCurrentStatus(project, today))),
         pagination: pagination(criteria.page, SEARCH_PAGE_SIZE, totalCount),
+      };
+    },
+
+    /**
+     * SRCH-02 추천 프로젝트(최대 4개). 기준 프로젝트는 공개 범위(삭제·취소 제외)여야 하고, 아니면 404.
+     * 결과는 검색과 같은 공개 범위 + 실제 모집 중인 프로젝트의 공개 요약뿐이며 DB는 바꾸지 않는다.
+     * 순위와 본문을 같은 스냅샷에서 읽어 그 사이 삭제·마감된 프로젝트가 섞이지 않게 한다.
+     */
+    async recommendProjects(projectId) {
+      const today = todayKst(now());
+      const todayDate = toDbDate(today);
+      const { ranked, rows } = await prisma.$transaction(
+        async (tx) => {
+          const project = await tx.project.findFirst({
+            where: { id: projectId, ...PUBLIC_PROJECT_WHERE },
+            select: { category: true, techStacks: { select: { techStackId: true } } },
+          });
+          if (!project) throw notFound();
+          const order = await rankRecommendations(tx, {
+            projectId,
+            category: project.category,
+            techStackIds: project.techStacks.map((link) => link.techStackId),
+            today: todayDate,
+          });
+          if (order.length === 0) return { ranked: order, rows: [] };
+          const found = await tx.project.findMany({
+            where: {
+              id: { in: order.map((item) => item.id) },
+              AND: [PUBLIC_PROJECT_WHERE, publicStatusWhere('RECRUITING', todayDate)],
+            },
+            select: searchSelect,
+          });
+          return { ranked: order, rows: found };
+        },
+        { isolationLevel: 'RepeatableRead' },
+      );
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      return {
+        data: ranked
+          .filter((item) => byId.has(item.id))
+          .map((item) => ({
+            ...toSearchItem(withCurrentStatus(byId.get(item.id), today)),
+            match: {
+              sameCategory: item.sameCategory,
+              sharedTechStackCount: item.sharedTechStackCount,
+            },
+          })),
       };
     },
   };

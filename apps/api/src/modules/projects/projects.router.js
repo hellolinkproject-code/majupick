@@ -74,6 +74,12 @@ export function createProjectsRouter({ prisma, authConfig, projectService }) {
     res.json({ data: await service.getProject(projectId, req.auth?.userId ?? null) });
   });
 
+  /** SRCH-02. 로그인 없이 본다. 공개 요약만 담으므로 토큰은 보지 않는다. */
+  router.get('/:projectId/recommendations', async (req, res) => {
+    const projectId = parseProjectId(req.params.projectId);
+    res.json(await service.recommendProjects(projectId));
+  });
+
   router.patch(
     '/:projectId',
     guard.authenticate,

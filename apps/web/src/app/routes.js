@@ -3,6 +3,7 @@ import { RequireAuth } from '../components/RequireAuth.jsx';
 import { HomePage } from '../pages/HomePage.jsx';
 import { LoginPage } from '../pages/LoginPage.jsx';
 import { MyApplicationsPage } from '../pages/MyApplicationsPage.jsx';
+import { MyBookmarksPage } from '../pages/MyBookmarksPage.jsx';
 import { MyProfilePage } from '../pages/MyProfilePage.jsx';
 import { MyProjectsPage } from '../pages/MyProjectsPage.jsx';
 import { NotFoundPage } from '../pages/NotFoundPage.jsx';
@@ -37,6 +38,7 @@ export const routes = [
           { path: 'me', Component: MyProfilePage },
           { path: 'me/projects', Component: MyProjectsPage },
           { path: 'me/applications', Component: MyApplicationsPage },
+          { path: 'me/bookmarks', Component: MyBookmarksPage },
           { path: 'notifications', Component: NotificationsPage },
           { path: 'projects/new', Component: ProjectNewPage },
           { path: 'projects/:projectId/edit', Component: ProjectEditPage },

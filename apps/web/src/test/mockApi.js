@@ -6,6 +6,15 @@ const DEFAULT_HANDLERS = Object.freeze({
   'GET /notifications/unread-count': () => ({ data: { data: { count: 0 } } }),
 });
 
+/** 상세 화면 아래 추천(SRCH-02)은 모든 상세에서 불린다. 테스트가 따로 정하지 않으면 빈 목록이다. */
+const DEFAULT_PATTERN_HANDLERS = Object.freeze([
+  [/^GET \/projects\/[^/]+\/recommendations$/, () => ({ data: { data: [] } })],
+]);
+
+function defaultHandlerFor(key) {
+  return DEFAULT_PATTERN_HANDLERS.find(([pattern]) => pattern.test(key))?.[1];
+}
+
 /**
  * 테스트용 가짜 API 서버. axios adapter를 바꿔 인터셉터·스토어·화면은 실제 코드로 동작시킨다.
  * handlers: { 'POST /auth/login': ({ body, headers, calls }) => ({ status, data }) }
@@ -29,7 +38,7 @@ export function installMockApi(customHandlers) {
     };
     calls.push(call);
 
-    const handler = handlers[key];
+    const handler = handlers[key] ?? defaultHandlerFor(key);
     if (!handler) throw new Error(`Unhandled request in test: ${key}`);
     const { status = 200, data = null } = (await handler({ ...call, calls })) ?? {};
 

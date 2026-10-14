@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApplicantsPanel } from '../components/application/ApplicantsPanel.jsx';
 import { ApplyPanel } from '../components/application/ApplyPanel.jsx';
+import { BookmarkButton } from '../components/project/BookmarkButton.jsx';
 import { CloseRecruitControl } from '../components/project/CloseRecruitControl.jsx';
 import { NoticeCard, StatusBadge } from '../components/project/ProjectBits.jsx';
+import { RecommendedProjects } from '../components/project/RecommendedProjects.jsx';
 import { parseApiError } from '../lib/authApi.js';
 import { fetchMetaOptions } from '../lib/profileApi.js';
 import { formatWon } from '../lib/profileForm.js';
@@ -91,6 +93,14 @@ export function ProjectDetailPage() {
     staleTime: Infinity,
   });
 
+  // 하단 추천 카드로 다른 프로젝트에 가면 같은 화면이 재사용되므로 맨 위부터 보여 준다.
+  const shownProjectId = useRef(projectId);
+  useEffect(() => {
+    if (shownProjectId.current === projectId) return;
+    shownProjectId.current = projectId;
+    window.scrollTo(0, 0);
+  }, [projectId]);
+
   if (project.isPending) return <p className="page-status">프로젝트를 불러오는 중…</p>;
   if (project.isError) {
     const error = parseApiError(project.error);
@@ -111,9 +121,9 @@ export function ProjectDetailPage() {
   const data = project.data;
   const from = location.state?.from;
   const fromSearch = typeof from === 'string' && /^\/projects(\?|$)/.test(from);
-  const category =
-    options.data?.projectCategories.find((option) => option.value === data.category)?.label ??
-    data.category;
+  const categoryLabelOf = (value) =>
+    options.data?.projectCategories.find((option) => option.value === value)?.label ?? value;
+  const category = categoryLabelOf(data.category);
   const actions = data.availableActions ?? [];
 
   return (
@@ -143,6 +153,7 @@ export function ProjectDetailPage() {
           </Link>{' '}
           · {data.client.name}
         </p>
+        <BookmarkButton key={`bookmark-${data.id}`} project={data} />
       </header>
 
       <section className="profile-card" aria-labelledby="project-info-heading">
@@ -207,6 +218,8 @@ export function ProjectDetailPage() {
           </p>
         </section>
       )}
+
+      <RecommendedProjects projectId={data.id} categoryLabelOf={categoryLabelOf} />
     </article>
   );
 }
