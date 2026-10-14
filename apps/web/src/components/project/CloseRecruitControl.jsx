@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { ConfirmDialog } from '../ConfirmDialog.jsx';
 import { projectApplicationsKey } from '../../lib/applicationApi.js';
 import { parseApiError } from '../../lib/authApi.js';
 import { closeProject } from '../../lib/projectApi.js';
@@ -14,59 +15,48 @@ export function CloseRecruitControl({ project, onClosed }) {
   const [confirming, setConfirming] = useState(false);
   const close = useMutation({
     mutationFn: () => closeProject(project.id),
-    onSuccess: (result) => {
-      setConfirming(false);
+    // 새 목록을 받은 뒤 창을 닫는다. 이 버튼이 사라지면 창이 포커스를 본문으로 옮긴다.
+    onSuccess: async (result) => {
       onClosed?.(closeResultMessage(result));
-      return Promise.all([
+      await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['project', String(project.id)] }),
         queryClient.invalidateQueries({ queryKey: projectApplicationsKey(project.id) }),
         queryClient.invalidateQueries({ queryKey: ['my-projects'] }),
         queryClient.invalidateQueries({ queryKey: ['project-search'] }),
       ]);
+      setConfirming(false);
     },
   });
 
-  if (!confirming) {
-    return (
-      <button type="button" className="button button--ghost" onClick={() => setConfirming(true)}>
+  return (
+    <>
+      <button
+        type="button"
+        className="button button--ghost"
+        onClick={() => {
+          close.reset();
+          setConfirming(true);
+        }}
+      >
         모집 마감
       </button>
-    );
-  }
-  const titleId = `close-confirm-title-${project.id}`;
-  return (
-    <div className="confirm-box confirm-box--accept" role="alertdialog" aria-labelledby={titleId}>
-      <p id={titleId}>
-        <strong>‘{project.title}’ 모집을 지금 마감할까요?</strong>
-      </p>
-      <p>
-        검토 대기 중인 지원은 모두 자동으로 거절되고, 지원자 전원에게 마감 알림이 갑니다. 마감
-        후에는 다시 모집할 수 없습니다.
-      </p>
-      {close.isError && (
-        <p className="form-field__error" role="alert">
-          {parseApiError(close.error).message}
-        </p>
+      {confirming && (
+        <ConfirmDialog
+          title={`‘${project.title}’ 모집을 지금 마감할까요?`}
+          confirmLabel="마감 확인"
+          pendingLabel="마감하는 중…"
+          pending={close.isPending}
+          error={close.isError ? parseApiError(close.error).message : ''}
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => close.mutate()}
+        >
+          <p>
+            검토 대기 중인 지원은 모두 자동으로 거절되고, 지원자 전원에게 마감 알림이 갑니다. 마감
+            후에는 다시 모집할 수 없습니다.
+          </p>
+        </ConfirmDialog>
       )}
-      <div className="funnel-actions">
-        <button
-          type="button"
-          className="button button--ghost"
-          onClick={() => setConfirming(false)}
-          disabled={close.isPending}
-        >
-          취소
-        </button>
-        <button
-          type="button"
-          className="button"
-          onClick={() => close.mutate()}
-          disabled={close.isPending}
-        >
-          {close.isPending ? '마감하는 중…' : '마감 확인'}
-        </button>
-      </div>
-    </div>
+    </>
   );
 }
 

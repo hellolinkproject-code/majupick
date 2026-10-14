@@ -1,4 +1,4 @@
-import { Link } from 'react-router';
+import { NavLink } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import {
   fetchUnreadCount,
@@ -22,7 +22,7 @@ export function NotificationBell({ userId }) {
   const count = unread.data ?? 0;
 
   return (
-    <Link
+    <NavLink
       to="/notifications"
       className="notification-bell"
       aria-label={count > 0 ? `알림, 읽지 않은 알림 ${count}개` : '알림'}
@@ -38,6 +38,6 @@ export function NotificationBell({ userId }) {
           {badgeText(count)}
         </span>
       )}
-    </Link>
+    </NavLink>
   );
 }

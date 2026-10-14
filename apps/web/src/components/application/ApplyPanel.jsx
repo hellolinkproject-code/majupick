@@ -30,7 +30,7 @@ function Panel({ children }) {
   );
 }
 
-function AppliedState({ application }) {
+function AppliedState({ application, cancelled }) {
   return (
     <div className="completion completion--done" role="status">
       <strong>이 프로젝트에 지원했습니다.</strong>
@@ -41,7 +41,15 @@ function AppliedState({ application }) {
       {application.status === 'REJECTED' && application.rejectReason && (
         <span>{REJECT_REASON_LABELS[application.rejectReason] ?? application.rejectReason}</span>
       )}
-      {application.status === 'ACCEPTED' && <span>의뢰인이 이 지원을 선정했습니다.</span>}
+      {application.status === 'ACCEPTED' &&
+        (cancelled ? (
+          <span>
+            의뢰인이 이 지원을 선정했지만, 계약 체결 전에 프로젝트가 취소되어 계약이 진행되지
+            않습니다.
+          </span>
+        ) : (
+          <span>의뢰인이 이 지원을 선정했습니다.</span>
+        ))}
       <span>
         <Link to="/me/applications">내 지원 현황 보기</Link>
       </span>
@@ -50,12 +58,14 @@ function AppliedState({ application }) {
 }
 
 function NotRecruiting({ project }) {
-  const scheduled = project.publicStatus === 'SCHEDULED';
+  let message = '모집이 마감되어 지원할 수 없습니다.';
+  if (project.isCancelled) message = '취소된 프로젝트라 지원할 수 없습니다.';
+  else if (project.publicStatus === 'SCHEDULED') {
+    message = `모집 시작 전입니다. ${formatDay(project.recruitStartDate)}부터 지원할 수 있습니다.`;
+  }
   return (
     <p className="apply-panel__closed" role="status">
-      {scheduled
-        ? `모집 시작 전입니다. ${formatDay(project.recruitStartDate)}부터 지원할 수 있습니다.`
-        : '모집이 마감되어 지원할 수 없습니다.'}
+      {message}
     </p>
   );
 }
@@ -182,7 +192,7 @@ export function ApplyPanel({ project }) {
   if (project.myApplication) {
     return (
       <Panel>
-        <AppliedState application={project.myApplication} />
+        <AppliedState application={project.myApplication} cancelled={project.isCancelled} />
       </Panel>
     );
   }

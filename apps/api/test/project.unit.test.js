@@ -1,6 +1,10 @@
 // 프로젝트 입력 검증·날짜(KST)·상태 계산·응답 변환 단위 테스트(DB 없음).
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { toProjectDetail } from '../src/modules/projects/project.service.js';
+import {
+  cancelLockedProject,
+  NO_CONTRACT_MODULE,
+} from '../src/modules/projects/projectCancellation.js';
 import {
   parseDateOnly,
   parseIdempotencyKey,
@@ -238,8 +242,11 @@ describe('toProjectDetail', () => {
       publicStatus: 'CLOSED',
       isOwner: true,
       status: 'CLOSED',
-      availableActions: ['EDIT', 'DELETE'],
+      availableActions: ['EDIT', 'DELETE', 'CANCEL'],
       lockedFields: ['recruitStartDate', 'recruitEndDate'],
+      pendingApplicantCount: 0,
+      cancelledAt: null,
+      isCancelled: false,
       techStacks: [
         { id: 1, name: 'Node.js' },
         { id: 2, name: 'React' },
@@ -252,7 +259,11 @@ describe('toProjectDetail', () => {
     expect(visitor.publicStatus).toBe('CLOSED');
     expect(visitor).not.toHaveProperty('status');
     expect(visitor).not.toHaveProperty('availableActions');
-    expect(toProjectDetail({ ...row, status: 'CONTRACTING' }, 10).availableActions).toEqual([]);
+    expect(visitor).not.toHaveProperty('pendingApplicantCount');
+    expect(visitor).not.toHaveProperty('cancelledAt');
+    expect(toProjectDetail({ ...row, status: 'CONTRACTING' }, 10).availableActions).toEqual([
+      'CANCEL',
+    ]);
   });
 
   it('offers the manual close (STAT-01) only while recruiting', () => {
@@ -260,10 +271,88 @@ describe('toProjectDetail', () => {
       'EDIT',
       'DELETE',
       'CLOSE',
+      'CANCEL',
     ]);
     expect(toProjectDetail({ ...row, status: 'SCHEDULED' }, 10).availableActions).toEqual([
       'EDIT',
       'DELETE',
+      'CANCEL',
     ]);
+  });
+
+  it('offers the cancel (STAT-02) only before the contract stage is signed', () => {
+    for (const status of ['IN_PROGRESS', 'COMPLETED', 'CANCELLED']) {
+      expect(toProjectDetail({ ...row, status }, 10).availableActions).toEqual([]);
+    }
+    const cancelledAt = new Date('2026-10-15T01:00:00Z');
+    expect(toProjectDetail({ ...row, status: 'CANCELLED', cancelledAt }, 10)).toMatchObject({
+      isCancelled: true,
+      cancelledAt,
+      publicStatus: 'CLOSED',
+    });
+    expect(
+      toProjectDetail(row, 10, { activeApplicantCount: 3, pendingApplicantCount: 2 })
+        .pendingApplicantCount,
+    ).toBe(2);
+  });
+});
+
+describe('cancelLockedProject (STAT-02)', () => {
+  const now = new Date('2026-10-14T05:00:00Z');
+  const fakeTx = () => ({
+    application: {
+      updateMany: vi.fn(async () => ({ count: 2 })),
+      count: vi.fn(async () => 1),
+    },
+    project: { update: vi.fn(async () => ({})) },
+  });
+
+  it('rejects pending applications, keeps accepted ones and marks the project cancelled', async () => {
+    const tx = fakeTx();
+    const result = await cancelLockedProject(tx, { id: 7, status: 'CONTRACTING' }, { now });
+    expect(result).toEqual({ rejectedCount: 2, keptAcceptedCount: 1 });
+    expect(tx.application.updateMany).toHaveBeenCalledWith({
+      where: { projectId: 7, status: 'PENDING' },
+      data: { status: 'REJECTED', rejectReason: 'PROJECT_CANCELLED', decidedAt: now },
+    });
+    expect(tx.project.update).toHaveBeenCalledWith({
+      where: { id: 7 },
+      data: { status: 'CANCELLED', cancelledAt: now },
+    });
+  });
+
+  it.each(['IN_PROGRESS', 'COMPLETED', 'CANCELLED'])(
+    'writes nothing for a %s project',
+    async (status) => {
+      const tx = fakeTx();
+      await expect(cancelLockedProject(tx, { id: 7, status }, { now })).rejects.toMatchObject({
+        status: 409,
+        code: 'INVALID_STATE_TRANSITION',
+        details: { currentStatus: status },
+      });
+      expect(tx.application.updateMany).not.toHaveBeenCalled();
+      expect(tx.project.update).not.toHaveBeenCalled();
+    },
+  );
+
+  it('asks the contract policy before writing and lets it clean up unsigned contracts', async () => {
+    const tx = fakeTx();
+    const blocking = {
+      findBlockingContract: vi.fn(async () => ({ id: 3, status: 'SIGNED' })),
+      cancelOpenContracts: vi.fn(),
+    };
+    await expect(
+      cancelLockedProject(tx, { id: 7, status: 'CONTRACTING' }, { now, contractPolicy: blocking }),
+    ).rejects.toMatchObject({ details: { contractStatus: 'SIGNED' } });
+    expect(tx.application.updateMany).not.toHaveBeenCalled();
+
+    const open = { ...NO_CONTRACT_MODULE, cancelOpenContracts: vi.fn(async () => 1) };
+    await cancelLockedProject(tx, { id: 7, status: 'RECRUITING' }, { now, contractPolicy: open });
+    expect(open.cancelOpenContracts).toHaveBeenCalledWith(
+      tx,
+      { id: 7, status: 'RECRUITING' },
+      { now },
+    );
+    expect(await NO_CONTRACT_MODULE.findBlockingContract()).toBeNull();
   });
 });

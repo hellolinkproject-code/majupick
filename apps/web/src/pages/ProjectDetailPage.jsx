@@ -3,7 +3,9 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ApplicantsPanel } from '../components/application/ApplicantsPanel.jsx';
 import { ApplyPanel } from '../components/application/ApplyPanel.jsx';
+import { ConfirmDialog } from '../components/ConfirmDialog.jsx';
 import { BookmarkButton } from '../components/project/BookmarkButton.jsx';
+import { CancelProjectControl } from '../components/project/CancelProjectControl.jsx';
 import { CloseRecruitControl } from '../components/project/CloseRecruitControl.jsx';
 import { NoticeCard, StatusBadge } from '../components/project/ProjectBits.jsx';
 import { RecommendedProjects } from '../components/project/RecommendedProjects.jsx';
@@ -11,7 +13,7 @@ import { parseApiError } from '../lib/authApi.js';
 import { fetchMetaOptions } from '../lib/profileApi.js';
 import { formatWon } from '../lib/profileForm.js';
 import { deleteProject, fetchProject, projectQueryKey } from '../lib/projectApi.js';
-import { formatPeriod } from '../lib/projectForm.js';
+import { formatDay, formatPeriod, toKstDay } from '../lib/projectForm.js';
 import { useFlashNotice } from '../lib/useFlashNotice.js';
 import { useSessionStore } from '../stores/useSessionStore.js';
 
@@ -30,43 +32,48 @@ function DeleteControl({ project }) {
     },
   });
 
-  if (!confirming) {
-    return (
-      <button type="button" className="button button--danger" onClick={() => setConfirming(true)}>
+  return (
+    <>
+      <button
+        type="button"
+        className="button button--danger"
+        onClick={() => {
+          remove.reset();
+          setConfirming(true);
+        }}
+      >
         삭제
       </button>
-    );
-  }
-  return (
-    <div className="confirm-box" role="alertdialog" aria-labelledby="delete-confirm-title">
-      <p id="delete-confirm-title">
-        <strong>이 프로젝트를 삭제할까요?</strong> 삭제하면 목록과 상세 화면에서 보이지 않습니다.
-      </p>
-      {remove.isError && (
-        <p className="form-field__error" role="alert">
-          {parseApiError(remove.error).message}
-        </p>
+      {confirming && (
+        <ConfirmDialog
+          title="이 프로젝트를 삭제할까요?"
+          confirmLabel="삭제 확인"
+          pendingLabel="삭제하는 중…"
+          danger
+          pending={remove.isPending}
+          error={remove.isError ? parseApiError(remove.error).message : ''}
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => remove.mutate()}
+        >
+          <p>삭제하면 목록과 상세 화면에서 보이지 않습니다.</p>
+        </ConfirmDialog>
       )}
-      <div className="funnel-actions">
-        <button
-          type="button"
-          className="button button--ghost"
-          onClick={() => setConfirming(false)}
-          disabled={remove.isPending}
-        >
-          취소
-        </button>
-        <button
-          type="button"
-          className="button button--danger"
-          onClick={() => remove.mutate()}
-          disabled={remove.isPending}
-        >
-          {remove.isPending ? '삭제하는 중…' : '삭제 확인'}
-        </button>
-      </div>
-    </div>
+    </>
   );
+}
+
+/** 소유자는 7개 상태, 취소된 프로젝트를 보는 지원자는 '취소', 그 밖에는 공개 상태(3개). */
+function badgeStatusOf(project) {
+  if (project.isOwner) return project.status;
+  return project.isCancelled ? 'CANCELLED' : project.publicStatus;
+}
+
+/** 소유자에게 동작이 없을 때의 안내. 취소·거래 단계를 구분한다. */
+function ownerLockedMessage(status) {
+  if (status === 'CANCELLED') {
+    return '취소된 프로젝트입니다. 수정·삭제·모집 마감·지원자 선정을 할 수 없습니다.';
+  }
+  return '계약이 체결된 프로젝트는 수정·삭제·취소할 수 없습니다. 정상 완료 또는 환불 절차를 거쳐야 합니다.';
 }
 
 /**
@@ -140,9 +147,16 @@ export function ProjectDetailPage() {
       )}
       <header className="project-detail__header">
         <div className="project-detail__badges">
-          <StatusBadge status={data.isOwner ? data.status : data.publicStatus} />
+          <StatusBadge status={badgeStatusOf(data)} />
           <span className="chip">{category}</span>
         </div>
+        {data.isCancelled && (
+          <p className="completion project-detail__cancelled" role="status">
+            {data.isOwner ? '' : '의뢰인이 '}계약 체결 전에 이 프로젝트를 취소했습니다
+            {data.cancelledAt && ` (${formatDay(toKstDay(data.cancelledAt))})`}. 새 지원을 받지
+            않습니다.
+          </p>
+        )}
         <h1>{data.title}</h1>
         <p className="project-detail__client">
           <Link
@@ -153,7 +167,7 @@ export function ProjectDetailPage() {
           </Link>{' '}
           · {data.client.name}
         </p>
-        <BookmarkButton key={`bookmark-${data.id}`} project={data} />
+        {!data.isCancelled && <BookmarkButton key={`bookmark-${data.id}`} project={data} />}
       </header>
 
       <section className="profile-card" aria-labelledby="project-info-heading">
@@ -195,23 +209,30 @@ export function ProjectDetailPage() {
         <section className="profile-card" aria-labelledby="project-owner-heading">
           <h2 id="project-owner-heading">프로젝트 관리</h2>
           {actions.length === 0 ? (
-            <p className="page-status">
-              {data.status === 'CANCELLED'
-                ? '취소된 프로젝트는 수정하거나 삭제할 수 없습니다.'
-                : '계약 단계에 들어간 프로젝트는 수정하거나 삭제할 수 없습니다.'}
-            </p>
+            <p className="page-status">{ownerLockedMessage(data.status)}</p>
           ) : (
-            <div className="funnel-actions funnel-actions--start">
-              {actions.includes('EDIT') && (
-                <Link to={`/projects/${data.id}/edit`} className="button">
-                  수정
-                </Link>
+            <>
+              {data.status === 'CONTRACTING' && (
+                <p className="page-status">
+                  계약 대기 중이라 수정·삭제·모집 마감은 할 수 없습니다. 계약 체결 전까지는
+                  프로젝트를 취소할 수 있습니다.
+                </p>
               )}
-              {actions.includes('CLOSE') && (
-                <CloseRecruitControl project={data} onClosed={setCloseNotice} />
-              )}
-              {actions.includes('DELETE') && <DeleteControl project={data} />}
-            </div>
+              <div className="funnel-actions funnel-actions--start">
+                {actions.includes('EDIT') && (
+                  <Link to={`/projects/${data.id}/edit`} className="button">
+                    수정
+                  </Link>
+                )}
+                {actions.includes('CLOSE') && (
+                  <CloseRecruitControl project={data} onClosed={setCloseNotice} />
+                )}
+                {actions.includes('DELETE') && <DeleteControl project={data} />}
+                {actions.includes('CANCEL') && (
+                  <CancelProjectControl project={data} onCancelled={setCloseNotice} />
+                )}
+              </div>
+            </>
           )}
           <p className="form-field__hint project-detail__back">
             <Link to="/me/projects">내 프로젝트 목록으로</Link>

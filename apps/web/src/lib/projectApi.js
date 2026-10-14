@@ -52,6 +52,12 @@ export async function closeProject(projectId) {
   return res.data.data;
 }
 
+/** STAT-02 프로젝트 취소(삭제와 다름). 응답: { project, rejectedCount, keptAcceptedCount }. */
+export async function cancelProject(projectId) {
+  const res = await apiClient.post(`/projects/${projectId}/cancel`);
+  return res.data.data;
+}
+
 /** PRJ-05 내 프로젝트(페이지당 10개). */
 export async function fetchMyProjects(page = 1) {
   const res = await apiClient.get('/me/projects', { params: { page } });

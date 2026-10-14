@@ -215,7 +215,7 @@ describe('POST /api/projects (PRJ-01)', () => {
       publicStatus: 'RECRUITING',
       status: 'RECRUITING',
       isOwner: true,
-      availableActions: ['EDIT', 'DELETE', 'CLOSE'],
+      availableActions: ['EDIT', 'DELETE', 'CLOSE', 'CANCEL'],
       applicantCount: 0,
       client: { id: users.client.id, companyName: '워크브릿지' },
     });

@@ -597,8 +597,8 @@
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
 | STAT-01 | POST | `/projects/:projectId/close` | 소유자 | A-24, A-34, A-36⑤ | 구현(STEP 06-C, §9.1) |
-| STAT-02 | POST | `/projects/:projectId/cancel` | 소유자 | A-27, D-13 | 설계 |
-| STAT-03 | POST | `/internal/jobs/sync-project-status` | 내부 키(헤더 `X-Job-Secret`) | A-24, A-34, D-08 | 미구현(선택). 같은 작업을 서버 내부 주기 실행과 CLI 스크립트로 제공(§9.1 #6~7) |
+| STAT-02 | POST | `/projects/:projectId/cancel` | 소유자 | A-27, D-13 | 구현(STEP 07-B, §9.2) |
+| STAT-03 | POST | `/internal/jobs/sync-project-status` | 내부 키(헤더 `X-Job-Secret`) | A-24, A-34, D-08 | 미구현(선택). 같은 작업을 서버 내부 주기 실행과 CLI 스크립트로 제공(§9.1 #6~7). 07-B 판단: 기본 필수에는 CLI로 충분(§9.2 #12) |
 
 **STAT-01 수동 모집 마감**
 - 처리(한 트랜잭션): `RECRUITING` → `CLOSED`, 대기 지원 일괄 `REJECTED(PROJECT_CLOSED)`, 지원자 전원 알림 ⑤
@@ -632,6 +632,25 @@
 | 8 | 날짜 경계 | KST | 마감일 당일 23:59:59.999(KST)까지 모집 중, 다음 날 00:00(KST)부터 마감. 시작일 00:00(KST)부터 모집 중. 실제 반영은 경계 후 최대 한 주기 늦을 수 있으나, 그동안에도 조회·검색은 날짜로 계산한 상태를 보여 주고 새 지원·선정·거절은 409로 막는다 | D-41, D-83 |
 | 9 | 동시성 | - | 지원(`FOR SHARE`)·선정·거절·수정·삭제·마감(`FOR UPDATE`)이 모두 프로젝트 행을 먼저 잠근다. 수동 마감 vs 새 지원: 대기 지원이 남지 않는다. 마감 vs 선정: 한쪽만 성공. 주기 작업 두 개 동시 실행·서버 여러 대: 프로젝트별 잠금 + 조건부 갱신 + 알림 `event_key` UNIQUE로 한 번만 반영 | D-54, D-102 |
 | 10 | 수정·삭제 전 동기화 | - | PRJ-03·04가 행을 잠근 뒤 같은 동기화(#5)를 먼저 한다. 따라서 마감일이 지난 프로젝트를 삭제하면 대기 지원은 `PROJECT_DELETED`가 아니라 `PROJECT_CLOSED`(+ 알림 ⑤)가 된다. 요청이 실패하면 동기화도 롤백된다 | D-83, D-94 |
+
+### 9.2 STEP 07-B 구현 내용과 명세 대비 차이 (STAT-02 프로젝트 취소)
+
+구현: `apps/api/src/modules/projects/projectCancellation.js`(`cancelLockedProject`, 계약 확인 자리 `NO_CONTRACT_MODULE`), `project.service.js`의 `cancelProject`·`countApplications`·`ownerViewer`, `projects.router.js`, `projectStatus.js`의 `CANCELLABLE_STATUSES`. 화면: `apps/web/src/components/project/CancelProjectControl.jsx`(내 프로젝트 목록·프로젝트 상세 "프로젝트 관리"), 공통 확인 창 `components/ConfirmDialog.jsx`. 테스트: `apps/api/test/db/projectCancel.integration.test.js`(24), `apps/api/test/project.unit.test.js`의 `cancelLockedProject`, `apps/web/src/app/projectCancel.test.jsx`. **DB 변경 없음**(`CANCELLED` 상태·`cancelled_at`·`PROJECT_CANCELLED` 사유는 ERD_v1에 이미 있음). 새 결정은 모두 제안(D-109~D-114)이다.
+
+| # | 항목 | 명세 | 구현 | 근거 |
+|---|---|---|---|---|
+| 1 | 확인 순서 | 403, 404, 409 | 로그인 401 → 역할 `ROLE_REQUIRED` → 의뢰인 403 `FORBIDDEN` → 없음·삭제 404 → 남의 프로젝트: 취소된 프로젝트면 404(취소된 프로젝트는 공개 범위 밖), 아니면 403 → 행 잠금 후 자동 마감 동기화 → 실제 상태 → 계약 확인 → 처리 | PRJ-03·04·STAT-01과 같은 소유자 규칙, D-109 |
+| 2 | 허용 상태 | `SCHEDULED`·`RECRUITING`·`CLOSED`·`CONTRACTING`(체결 전) | 같음. `IN_PROGRESS`·`COMPLETED` 409 "계약이 체결된 프로젝트는 취소할 수 없습니다. 정상 완료 또는 환불 절차를 거쳐야 합니다."(`details.currentStatus`). 이미 취소 409 "이미 취소된 프로젝트입니다."(멱등 200이 아님, 중복 클릭은 한 번만 반영) | A-27, D-13, D-110 |
+| 3 | 계약 확인 | 서명 전 계약 `CANCELLED` | 계약·전자서명 테이블이 아직 없다(STEP 10 예정). 서비스가 `contractPolicy { findBlockingContract, cancelOpenContracts }`를 주입받고, 지금 기본값은 "체결된 계약 없음·정리할 계약 0건"이다. **계약 데이터를 가정하거나 더미값을 만들지 않는다**: 지금 구조에서는 서명이 일어날 수 없어 `CONTRACTING`은 항상 체결 전이다. 계약 모듈을 만들 때 이 두 함수만 바꾸면 `SIGNED` 이후 409, 서명 전 계약 정리가 같은 트랜잭션에 들어간다(테스트에서 가짜 정책으로 409·롤백 확인) | D-13, D-110 |
+| 4 | 지원 처리 | 대기·제안 중 지원 `REJECTED(PROJECT_CANCELLED)` | `PENDING` → `REJECTED(PROJECT_CANCELLED)` + `decided_at`(= `cancelled_at`). 이미 `REJECTED`인 지원은 사유·처리 시각을 바꾸지 않는다. **`ACCEPTED`(선정된 지원)는 그대로 둔다**: 선정 이력을 지우지 않고, 지원자 화면에서 "선정됐지만 프로젝트가 취소되어 계약이 진행되지 않습니다"로 보인다. 금액·기간·자기소개는 바꾸지 않는다. '제안 중' 상태는 아직 없다(B-04 금액 합의 미구현) | D-111 |
+| 5 | 처리 | 한 트랜잭션 | 프로젝트 행 `FOR UPDATE` → `syncLockedProject`(마감일이 지났으면 먼저 `CLOSED` + `PROJECT_CLOSED` 거절 + 알림 ⑤, 수정·삭제와 같음) → 허용 상태 확인 → 계약 확인 → 대기 지원 거절 → 서명 전 계약 정리 → `CANCELLED` + `cancelled_at`. 어느 단계든 실패하면 전부 롤백 | D-102 |
+| 6 | 알림 | - | **보내지 않는다.** 필수 5종에 취소 알림이 없고, 마감 알림 ⑤로 보내면 문구가 사실과 달라진다. 지원자는 내 지원 현황·상세에서 취소를 확인한다. 별도 취소 알림은 선택 기능으로 제안만 한다 | A-36, D-112 |
+| 7 | 응답 | `{ data: ProjectDetail }` | `{ data: { project(소유자용 ProjectDetail), rejectedCount, keptAcceptedCount } }` — 화면이 "검토 대기 지원 N건을 자동으로 거절했습니다"를 서버가 실제 처리한 숫자로 보여 준다 | STAT-01 응답과 같은 모양 |
+| 8 | 소유자 필드 | - | `availableActions`에 `CANCEL`(허용 상태일 때). `pendingApplicantCount`(확인 창의 "검토 대기 N건" 안내), `cancelledAt`. 모든 보는 사람에게 `isCancelled`(취소된 프로젝트는 소유자·그 프로젝트 지원자만 상세를 볼 수 있고, 공개 상태는 계속 `CLOSED`) | D-109 |
+| 9 | 지원 현황 | - | APP-04의 `project`에 `isCancelled` 추가. 화면은 공개 상태 대신 '취소' 배지와 "취소된 프로젝트" 표시 | A-35 |
+| 10 | 취소 후 | - | 검색·추천·북마크 목록에서 제외(기존 `PUBLIC_PROJECT_WHERE`), 북마크 행은 남김(D-107). 새 지원·선정·거절·수정·삭제·마감 409/404. 자동 마감 작업·조회(GET)로 상태가 돌아가지 않음(작업 대상이 `SCHEDULED`·`RECRUITING`·`CLOSED`뿐, GET은 DB에 쓰지 않음) | D-83, D-107 |
+| 11 | 동시성 | - | 취소도 프로젝트 행을 `FOR UPDATE`로 먼저 잠근다. 취소 vs 새 지원(`FOR SHARE`)·선정·직접 거절·수동 마감·자동 마감 작업: 한쪽이 먼저 끝나고 다른 쪽은 바뀐 상태를 보고 409(또는 취소가 남은 대기 지원을 거절). 취소 5건 동시: 1건만 200. 대기 지원이 남지 않는다(DB 테스트) | D-54, D-102 |
+| 12 | STAT-03 필요성 | 선택 | 기본 필수(A-24)의 자동 전환은 서버 내부 주기 작업 + CLI로 동작한다. HTTP 엔드포인트는 서버가 잠드는 호스팅에서 외부 스케줄러가 깨울 때만 필요하므로 **배포 환경을 정할 때 다시 판단**한다(지금은 미구현 유지, 운영 스케줄러 미연결) | D-99, D-113 |
 
 ---
 

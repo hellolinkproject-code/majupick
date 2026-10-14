@@ -6,6 +6,11 @@ const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 /** 모집 단계에서 수정·삭제가 가능한 상태(D-07, D-55). 거래 단계(CONTRACTING 이후)와 취소는 막는다. */
 export const EDITABLE_STATUSES = new Set(['SCHEDULED', 'RECRUITING', 'CLOSED']);
 export const DELETABLE_STATUSES = new Set(['SCHEDULED', 'RECRUITING', 'CLOSED']);
+/**
+ * 계약 체결 전이라 의뢰인이 취소할 수 있는 상태(RFP 2.3, A-27). CONTRACTING은 선정 후 계약 대기이며,
+ * 계약이 서명되었는지는 상태가 아니라 계약 데이터로 따로 확인한다(projectCancellation.js).
+ */
+export const CANCELLABLE_STATUSES = new Set(['SCHEDULED', 'RECRUITING', 'CLOSED', 'CONTRACTING']);
 /** 모집이 아직 열려 있어 날짜에 따라 상태가 바뀌는 상태. */
 export const OPEN_STATUSES = new Set(['SCHEDULED', 'RECRUITING']);
 

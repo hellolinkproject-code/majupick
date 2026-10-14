@@ -2,10 +2,12 @@ import { HttpError } from '../../utils/httpError.js';
 import { ACTIVE_APPLICATION_STATUSES } from '../applications/application.service.js';
 import { CLOSE_REASONS } from '../notifications/notificationEvents.js';
 import { DATE_MESSAGES, MY_PROJECTS_PAGE_SIZE } from './project.validation.js';
+import { cancelLockedProject, NO_CONTRACT_MODULE } from './projectCancellation.js';
 import { closeLockedProject, syncLockedProject } from './projectClosure.js';
 import { rankRecommendations } from './projectRecommendations.js';
 import { buildSearchWhere, SEARCH_PAGE_SIZE, searchSegments } from './projectSearch.js';
 import {
+  CANCELLABLE_STATUSES,
   DELETABLE_STATUSES,
   EDITABLE_STATUSES,
   effectiveStatus,
@@ -80,17 +82,21 @@ function lockedFieldsOf(status, activeApplicantCount) {
 
 /**
  * 소유자에게만 7개 상태와 지금 할 수 있는 동작을 알려 FE가 버튼을 직접 계산하지 않게 한다.
- * CLOSE(STAT-01)는 실제 상태가 모집 중일 때만 준다. 조회 응답은 withCurrentStatus를 거친 값이 들어온다.
+ * CLOSE(STAT-01)는 실제 상태가 모집 중일 때만, CANCEL(STAT-02)은 계약 체결 전 상태일 때만 준다.
+ * pendingApplicantCount는 취소·마감 확인 창의 안내용이다. 조회 응답은 withCurrentStatus를 거친 값이 들어온다.
  */
-function ownerFields(project, activeApplicantCount = 0) {
+function ownerFields(project, activeApplicantCount = 0, pendingApplicantCount = 0) {
   const availableActions = [];
   if (EDITABLE_STATUSES.has(project.status)) availableActions.push('EDIT');
   if (DELETABLE_STATUSES.has(project.status)) availableActions.push('DELETE');
   if (project.status === 'RECRUITING') availableActions.push('CLOSE');
+  if (CANCELLABLE_STATUSES.has(project.status)) availableActions.push('CANCEL');
   return {
     status: project.status,
     availableActions,
     lockedFields: lockedFieldsOf(project.status, activeApplicantCount),
+    pendingApplicantCount,
+    cancelledAt: project.cancelledAt ?? null,
   };
 }
 
@@ -102,7 +108,7 @@ function toMyApplication(application) {
 }
 
 /**
- * @param {object} viewer activeApplicantCount: 소유자 화면의 잠금 계산용,
+ * @param {object} viewer activeApplicantCount·pendingApplicantCount: 소유자 화면의 잠금 계산·확인 안내용,
  *   myApplication·isBookmarked: 로그인한 프리랜서에게만 넣는다(undefined면 키 자체를 넣지 않는다)
  */
 export function toProjectDetail(project, viewerId = null, viewer = {}) {
@@ -118,7 +124,9 @@ export function toProjectDetail(project, viewerId = null, viewer = {}) {
       companyName: client.clientProfile?.companyName ?? null,
     },
     isOwner,
-    ...(isOwner && ownerFields(project, viewer.activeApplicantCount)),
+    // 취소된 상세는 소유자와 그 지원자만 받는다(그 밖에는 404). 공개 상태(CLOSED)만으로는 마감과 구분되지 않는다.
+    isCancelled: project.status === 'CANCELLED',
+    ...(isOwner && ownerFields(project, viewer.activeApplicantCount, viewer.pendingApplicantCount)),
     ...(viewer.myApplication !== undefined && {
       myApplication: toMyApplication(viewer.myApplication),
     }),
@@ -126,19 +134,34 @@ export function toProjectDetail(project, viewerId = null, viewer = {}) {
   };
 }
 
-function toMyProject(project, activeApplicantCount) {
-  return { ...toSummary(project), ...ownerFields(project, activeApplicantCount) };
+function toMyProject(project, counts = NO_APPLICANTS) {
+  return { ...toSummary(project), ...ownerFields(project, counts.active, counts.pending) };
 }
 
-/** 프로젝트별 대기·수락 지원 수(D-06 잠금 계산). */
-async function countActiveApplications(db, projectIds) {
+const NO_APPLICANTS = Object.freeze({ active: 0, pending: 0 });
+
+/** 프로젝트별 대기·수락 지원 수(active, D-06 잠금 계산)와 대기 지원 수(pending, 취소·마감 안내). */
+async function countApplications(db, projectIds) {
   if (projectIds.length === 0) return new Map();
   const rows = await db.application.groupBy({
-    by: ['projectId'],
+    by: ['projectId', 'status'],
     where: { projectId: { in: projectIds }, status: { in: ACTIVE_APPLICATION_STATUSES } },
     _count: { _all: true },
   });
-  return new Map(rows.map((row) => [row.projectId, row._count._all]));
+  const counts = new Map();
+  for (const row of rows) {
+    const current = counts.get(row.projectId) ?? { ...NO_APPLICANTS };
+    current.active += row._count._all;
+    if (row.status === 'PENDING') current.pending += row._count._all;
+    counts.set(row.projectId, current);
+  }
+  return counts;
+}
+
+/** 소유자 상세의 viewer 값. */
+async function ownerViewer(db, projectId) {
+  const counts = (await countApplications(db, [projectId])).get(projectId) ?? NO_APPLICANTS;
+  return { activeApplicantCount: counts.active, pendingApplicantCount: counts.pending };
 }
 
 /** 조회 응답용: 마감일·시작일이 지난 상태를 DB에 쓰지 않고 반영한다(D-83). */
@@ -198,11 +221,12 @@ const notClosable = (status) =>
   );
 
 /**
- * PRJ-01~05, STAT-01. 권한(로그인·역할·프로필)은 라우터 미들웨어가 먼저 확인하고,
+ * PRJ-01~05, STAT-01·02. 권한(로그인·역할·프로필)은 라우터 미들웨어가 먼저 확인하고,
  * 소유자·상태 확인은 프로젝트 행을 잠근 트랜잭션 안에서 한다.
  * afterClose: 마감 트랜잭션 안에서 알림 ⑤를 만드는 함수(기본 notifyProjectClosed). 실패하면 마감 전체가 롤백된다.
+ * contractPolicy: 취소 시 계약 확인·정리(projectCancellation.js). 계약 단계 구현 전에는 NO_CONTRACT_MODULE.
  */
-export function createProjectService({ prisma, afterClose }) {
+export function createProjectService({ prisma, afterClose, contractPolicy = NO_CONTRACT_MODULE }) {
   async function assertTechStacksExist(db, ids) {
     const found = await db.techStack.count({ where: { id: { in: ids } } });
     if (found !== ids.length) throw unknownTechStacks();
@@ -304,10 +328,9 @@ export function createProjectService({ prisma, afterClose }) {
       if (!project) throw notFound();
       const isOwner = viewerId !== null && project.clientId === viewerId;
 
-      const viewer = {};
+      let viewer = {};
       if (isOwner) {
-        const counts = await countActiveApplications(prisma, [projectId]);
-        viewer.activeApplicantCount = counts.get(projectId) ?? 0;
+        viewer = await ownerViewer(prisma, projectId);
       } else if (viewerId !== null) {
         const user = await prisma.user.findUnique({
           where: { id: viewerId },
@@ -357,8 +380,8 @@ export function createProjectService({ prisma, afterClose }) {
         }
 
         const budgetChanged = 'budget' in changes && changes.budget !== project.budget;
-        const activeApplicantCount =
-          (await countActiveApplications(tx, [projectId])).get(projectId) ?? 0;
+        const viewer = await ownerViewer(tx, projectId);
+        const { activeApplicantCount } = viewer;
         if (activeApplicantCount > 0 && (budgetChanged || endChanged)) {
           throw new HttpError(
             409,
@@ -408,11 +431,9 @@ export function createProjectService({ prisma, afterClose }) {
           data,
           include: projectInclude,
         });
-        return { saved, activeApplicantCount };
+        return { saved, viewer };
       });
-      return toProjectDetail(updated.saved, userId, {
-        activeApplicantCount: updated.activeApplicantCount,
-      });
+      return toProjectDetail(updated.saved, userId, updated.viewer);
     },
 
     /**
@@ -453,11 +474,39 @@ export function createProjectService({ prisma, afterClose }) {
           where: { id: projectId },
           include: projectInclude,
         });
-        const counts = await countActiveApplications(tx, [projectId]);
         return {
-          project: toProjectDetail(saved, userId, {
-            activeApplicantCount: counts.get(projectId) ?? 0,
-          }),
+          project: toProjectDetail(saved, userId, await ownerViewer(tx, projectId)),
+          ...result,
+        };
+      });
+    },
+
+    /**
+     * STAT-02 프로젝트 취소(A-27). 계약 체결 전(모집 예정·모집 중·모집 마감·계약 대기)에만 가능하다.
+     * 확인 순서: (라우터) 로그인 → 역할 → 의뢰인 → 프로젝트 행 FOR UPDATE → 없음·삭제 404 → 남의 프로젝트 403
+     * (남의 취소된 프로젝트는 상세처럼 404) → 날짜 동기화 → 상태·계약 409.
+     * 한 트랜잭션에서 대기 지원 REJECTED(PROJECT_CANCELLED) + 프로젝트 CANCELLED. 선정·거절 이력은 그대로 둔다.
+     * 지원(FOR SHARE)·선정·거절·마감·자동 마감(FOR UPDATE)과 같은 행 잠금을 쓰므로 한쪽이 끝난 뒤에 판단한다.
+     */
+    async cancelProject(userId, projectId) {
+      return prisma.$transaction(async (tx) => {
+        const at = now();
+        const [row] = await tx.$queryRaw`
+          SELECT client_id AS "clientId", deleted_at AS "deletedAt", status::text AS status
+          FROM projects WHERE id = ${projectId} FOR UPDATE`;
+        if (!row || row.deletedAt) throw notFound();
+        if (row.clientId !== userId) {
+          if (row.status === 'CANCELLED') throw notFound();
+          throw notOwner('취소');
+        }
+        const { project } = await syncLockedProject(tx, projectId, { now: at, afterClose });
+        const result = await cancelLockedProject(tx, project, { now: at, contractPolicy });
+        const saved = await tx.project.findUnique({
+          where: { id: projectId },
+          include: projectInclude,
+        });
+        return {
+          project: toProjectDetail(saved, userId, await ownerViewer(tx, projectId)),
           ...result,
         };
       });
@@ -480,13 +529,13 @@ export function createProjectService({ prisma, afterClose }) {
         ],
         { isolationLevel: 'RepeatableRead' },
       );
-      const activeCounts = await countActiveApplications(
+      const counts = await countApplications(
         prisma,
         projects.map((project) => project.id),
       );
       return {
         data: projects.map((project) =>
-          toMyProject(withCurrentStatus(project, today), activeCounts.get(project.id) ?? 0),
+          toMyProject(withCurrentStatus(project, today), counts.get(project.id)),
         ),
         pagination: pagination(page, MY_PROJECTS_PAGE_SIZE, totalCount),
       };

@@ -442,7 +442,8 @@ describe('POST /api/applications/:id/accept (DEC-01)', () => {
     expect(await snapshot(project.id)).toEqual(after);
 
     const owner = await request(app).get(`/api/projects/${project.id}`).set(bearer(users.client));
-    expect(owner.body.data).toMatchObject({ status: 'CONTRACTING', availableActions: [] });
+    // 계약 대기는 수정·삭제·마감할 수 없고, 계약 체결 전이라 취소(STAT-02)만 남는다.
+    expect(owner.body.data).toMatchObject({ status: 'CONTRACTING', availableActions: ['CANCEL'] });
     const publicView = await request(app).get(`/api/projects/${project.id}`);
     expect(publicView.body.data.publicStatus).toBe('CLOSED');
     expect(publicView.body.data).not.toHaveProperty('status');

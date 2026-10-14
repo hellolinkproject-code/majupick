@@ -76,6 +76,8 @@ export function toApplication(application, today) {
       // 삭제된 프로젝트는 더 이상 모집하지 않으므로 저장 상태와 관계없이 마감으로 보여 준다.
       publicStatus: isDeleted ? 'CLOSED' : toPublicStatus(effectiveStatus(project, today)),
       isDeleted,
+      // 취소도 공개 상태로는 '모집 마감'이라, 지원자가 마감과 취소를 구분하도록 따로 알려 준다.
+      isCancelled: project.status === 'CANCELLED',
     },
     coverLetter: application.coverLetter,
     proposedAmount: application.proposedAmount.toString(),

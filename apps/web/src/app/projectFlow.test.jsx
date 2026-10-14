@@ -408,19 +408,40 @@ describe('project detail, edit and delete', () => {
     expect(callsTo('DELETE /projects/41')).toHaveLength(1);
   });
 
-  it('hides edit and delete in the deal stage', async () => {
+  it('hides edit and delete in the deal stage but still offers cancel before a contract', async () => {
     renderAt('/projects/41', client, {
       'GET /projects/41': () => ({
         data: {
-          data: detail({ status: 'CONTRACTING', publicStatus: 'CLOSED', availableActions: [] }),
+          data: detail({
+            status: 'CONTRACTING',
+            publicStatus: 'CLOSED',
+            availableActions: ['CANCEL'],
+          }),
         },
       }),
     });
     expect(await screen.findByText('계약 대기')).toBeTruthy();
+    expect(screen.getByText(/계약 대기 중이라 수정·삭제·모집 마감은 할 수 없습니다/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '삭제' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '수정' })).toBeNull();
+    expect(screen.getByRole('button', { name: '프로젝트 취소' })).toBeTruthy();
+  });
+
+  it('locks every owner action once the work is in progress', async () => {
+    renderAt('/projects/41', client, {
+      'GET /projects/41': () => ({
+        data: {
+          data: detail({ status: 'IN_PROGRESS', publicStatus: 'CLOSED', availableActions: [] }),
+        },
+      }),
+    });
     expect(
-      screen.getByText('계약 단계에 들어간 프로젝트는 수정하거나 삭제할 수 없습니다.'),
+      await screen.findByText(
+        '계약이 체결된 프로젝트는 수정·삭제·취소할 수 없습니다. 정상 완료 또는 환불 절차를 거쳐야 합니다.',
+      ),
     ).toBeTruthy();
     expect(screen.queryByRole('button', { name: '삭제' })).toBeNull();
+    expect(screen.queryByRole('button', { name: '프로젝트 취소' })).toBeNull();
   });
 });
 

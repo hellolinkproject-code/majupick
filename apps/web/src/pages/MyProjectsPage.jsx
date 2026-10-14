@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
+import { CancelProjectControl } from '../components/project/CancelProjectControl.jsx';
 import { CloseRecruitControl } from '../components/project/CloseRecruitControl.jsx';
 import { NoticeCard, StatusBadge } from '../components/project/ProjectBits.jsx';
 import { parseApiError } from '../lib/authApi.js';
@@ -86,9 +87,23 @@ export function MyProjectsPage() {
                   지원자 {project.applicantCount}명 관리
                 </Link>
               </p>
-              {project.availableActions?.includes('CLOSE') && (
+              {project.status === 'CANCELLED' && (
+                <p className="project-list__meta">
+                  {project.cancelledAt
+                    ? `${formatDay(toKstDay(project.cancelledAt))}에 취소한 프로젝트입니다.`
+                    : '취소한 프로젝트입니다.'}{' '}
+                  지원자와 선정·거절 기록은 그대로 볼 수 있습니다.
+                </p>
+              )}
+              {(project.availableActions?.includes('CLOSE') ||
+                project.availableActions?.includes('CANCEL')) && (
                 <div className="funnel-actions funnel-actions--start">
-                  <CloseRecruitControl project={project} onClosed={setCloseNotice} />
+                  {project.availableActions.includes('CLOSE') && (
+                    <CloseRecruitControl project={project} onClosed={setCloseNotice} />
+                  )}
+                  {project.availableActions.includes('CANCEL') && (
+                    <CancelProjectControl project={project} onCancelled={setCloseNotice} />
+                  )}
                 </div>
               )}
             </li>

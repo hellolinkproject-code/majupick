@@ -356,7 +356,8 @@ describe('POST /api/projects/:projectId/close (STAT-01, notification ⑤)', () =
         id: project.id,
         status: 'CLOSED',
         publicStatus: 'CLOSED',
-        availableActions: ['EDIT', 'DELETE'],
+        availableActions: ['EDIT', 'DELETE', 'CANCEL'],
+        pendingApplicantCount: 0,
       },
     });
 

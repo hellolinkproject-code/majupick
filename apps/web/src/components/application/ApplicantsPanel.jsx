@@ -13,6 +13,7 @@ import {
 } from '../../lib/applicationForm.js';
 import { parseApiError } from '../../lib/authApi.js';
 import { formatWon } from '../../lib/profileForm.js';
+import { ConfirmDialog } from '../ConfirmDialog.jsx';
 import { formatDay, toKstDay } from '../../lib/projectForm.js';
 
 const FILTERS = [
@@ -25,10 +26,12 @@ const FILTERS = [
 const CLOSED_NOTICES = {
   SCHEDULED: '모집 시작 전이라 아직 선정하거나 거절할 수 없습니다.',
   CLOSED: '모집이 마감되어 지원자를 선정하거나 거절할 수 없습니다.',
-  CANCELLED: '취소된 프로젝트라 지원자를 선정하거나 거절할 수 없습니다.',
+  CANCELLED:
+    '취소된 프로젝트라 지원자를 선정하거나 거절할 수 없습니다. 기존 선정·거절 기록은 그대로 남습니다.',
 };
 
 function decisionNotice(projectStatus, acceptedCount) {
+  if (projectStatus === 'CANCELLED') return CLOSED_NOTICES.CANCELLED;
   if (acceptedCount > 0 || ['CONTRACTING', 'IN_PROGRESS', 'COMPLETED'].includes(projectStatus)) {
     return '지원자 선정이 끝났습니다. 계약 체결과 결제는 별도 단계에서 진행합니다.';
   }
@@ -53,16 +56,16 @@ function ApplicantStatus({ application }) {
 function ConfirmDecision({ type, application, otherPendingCount, pending, onCancel, onConfirm }) {
   const name = application.freelancer.name;
   const accepting = type === 'accept';
-  const titleId = `decision-title-${application.id}`;
   return (
-    <div
-      className={`confirm-box ${accepting ? 'confirm-box--accept' : ''}`}
-      role="alertdialog"
-      aria-labelledby={titleId}
+    <ConfirmDialog
+      title={accepting ? `${name}님을 선정할까요?` : `${name}님의 지원을 거절할까요?`}
+      confirmLabel={accepting ? '선정 확정' : '거절 확정'}
+      pendingLabel={accepting ? '선정하는 중…' : '거절하는 중…'}
+      danger={!accepting}
+      pending={pending}
+      onCancel={onCancel}
+      onConfirm={onConfirm}
     >
-      <p id={titleId}>
-        <strong>{accepting ? `${name}님을 선정할까요?` : `${name}님의 지원을 거절할까요?`}</strong>
-      </p>
       {accepting ? (
         <>
           <p>이 지원자를 선정하면 다른 대기 지원은 자동으로 거절됩니다.</p>
@@ -74,35 +77,11 @@ function ConfirmDecision({ type, application, otherPendingCount, pending, onCanc
       ) : (
         <p>거절하면 되돌릴 수 없으며, 지원자 화면에 &lsquo;거절됨&rsquo;으로 표시됩니다.</p>
       )}
-      <div className="funnel-actions">
-        <button
-          type="button"
-          className="button button--ghost"
-          onClick={onCancel}
-          disabled={pending}
-        >
-          취소
-        </button>
-        <button
-          type="button"
-          className={accepting ? 'button' : 'button button--danger'}
-          onClick={onConfirm}
-          disabled={pending}
-        >
-          {accepting
-            ? pending
-              ? '선정하는 중…'
-              : '선정 확정'
-            : pending
-              ? '거절하는 중…'
-              : '거절 확정'}
-        </button>
-      </div>
-    </div>
+    </ConfirmDialog>
   );
 }
 
-function ApplicantItem({ application, confirming, children, onAsk, busy }) {
+function ApplicantItem({ application, children, onAsk, busy }) {
   const { freelancer } = application;
   const profile = freelancer.freelancerProfile;
   const actions = application.availableActions ?? [];
@@ -152,7 +131,7 @@ function ApplicantItem({ application, confirming, children, onAsk, busy }) {
         <summary>자기소개 보기</summary>
         <p className="project-detail__description">{application.coverLetter}</p>
       </details>
-      {actions.length > 0 && !confirming && (
+      {actions.length > 0 && (
         <div className="funnel-actions funnel-actions--start applicant-card__actions">
           {actions.includes('REJECT') && (
             <button
@@ -293,7 +272,6 @@ export function ApplicantsPanel({ project }) {
               <ApplicantItem
                 key={application.id}
                 application={application}
-                confirming={open}
                 busy={decide.isPending}
                 onAsk={(type) => ask(type, application)}
               >

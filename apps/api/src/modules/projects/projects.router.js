@@ -119,6 +119,22 @@ export function createProjectsRouter({ prisma, authConfig, projectService }) {
     },
   );
 
+  /**
+   * STAT-02 프로젝트 취소(계약 체결 전만). 삭제(DELETE, 소프트 삭제)와 다른 요청이다.
+   * 확인 순서: 로그인(401) → 역할 선택 → 의뢰인(403) → 존재(404) → 소유자(403) → 상태·계약(409).
+   * 응답: { project, rejectedCount, keptAcceptedCount }. 본문은 쓰지 않는다.
+   */
+  router.post(
+    '/:projectId/cancel',
+    guard.authenticate,
+    guard.requireRole,
+    onlyClient('취소'),
+    async (req, res) => {
+      const projectId = parseProjectId(req.params.projectId);
+      res.json({ data: await service.cancelProject(req.auth.userId, projectId) });
+    },
+  );
+
   return router;
 }
 

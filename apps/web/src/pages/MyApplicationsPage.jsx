@@ -28,7 +28,7 @@ function ApplicationItem({ application }) {
     <li className="project-list__item">
       <div className="project-detail__badges">
         <ApplicationStatusBadge status={application.status} />
-        <StatusBadge status={project.publicStatus} />
+        <StatusBadge status={project.isCancelled ? 'CANCELLED' : project.publicStatus} />
         <span className="project-list__date">
           지원 {formatDay(toKstDay(application.createdAt))}
         </span>
@@ -40,6 +40,7 @@ function ApplicationItem({ application }) {
       ) : (
         <Link to={`/projects/${project.id}`} className="project-list__title">
           {project.title}
+          {project.isCancelled && <span className="chip">취소된 프로젝트</span>}
         </Link>
       )}
       <p className="project-list__meta">
@@ -53,8 +54,10 @@ function ApplicationItem({ application }) {
       {application.status === 'ACCEPTED' && (
         <p className="application-item__result application-item__result--accepted">
           의뢰인이 이 지원을 선정했습니다
-          {application.decidedAt && ` (${formatDay(toKstDay(application.decidedAt))})`}. 계약 체결은
-          별도 단계에서 진행됩니다.
+          {application.decidedAt && ` (${formatDay(toKstDay(application.decidedAt))})`}.{' '}
+          {project.isCancelled
+            ? '이후 계약 체결 전에 프로젝트가 취소되어 계약이 진행되지 않습니다.'
+            : '계약 체결은 별도 단계에서 진행됩니다.'}
         </p>
       )}
       {application.status === 'REJECTED' && application.rejectReason && (
@@ -63,6 +66,11 @@ function ApplicationItem({ application }) {
           {application.decidedAt && ` (${formatDay(toKstDay(application.decidedAt))})`}
         </p>
       )}
+      {project.isCancelled &&
+        application.status === 'REJECTED' &&
+        application.rejectReason !== 'PROJECT_CANCELLED' && (
+          <p className="application-item__result">이후 의뢰인이 프로젝트를 취소했습니다.</p>
+        )}
       <details className="application-item__letter">
         <summary>제출한 자기소개 보기</summary>
         <p className="project-detail__description">{application.coverLetter}</p>
