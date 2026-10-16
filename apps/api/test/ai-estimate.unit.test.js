@@ -24,6 +24,7 @@ import {
 import {
   createOpenAiEstimateProvider,
   mapOpenAiError,
+  readUsage,
 } from '../src/modules/ai/providers/openaiProvider.js';
 import { HttpError } from '../src/utils/httpError.js';
 
@@ -319,8 +320,48 @@ describe('openai provider gate and fake client', () => {
     const params = fake.create.mock.calls[0][0];
     expect(params.store).toBe(false);
     expect(params.tools).toBeUndefined();
+    expect(params.reasoning).toEqual({ effort: 'low' });
     expect(params.text.format).toEqual(PRICE_ESTIMATE_TEXT_FORMAT);
     expect(params.model).toBe('gpt-6-luna');
+  });
+
+  it('counts reasoning tokens inside billable output usage', () => {
+    const usage = readUsage({
+      id: 'resp_r',
+      usage: {
+        input_tokens: 75,
+        output_tokens: 1186,
+        output_tokens_details: { reasoning_tokens: 1024 },
+      },
+    });
+    expect(usage.inputTokens).toBe(75);
+    expect(usage.outputTokens).toBe(1186);
+    expect(usage.reasoningTokens).toBe(1024);
+  });
+
+  it('marks incomplete responses as billable attempts with usage', async () => {
+    const create = vi.fn(async () => ({
+      id: 'resp_incomplete',
+      status: 'incomplete',
+      incomplete_details: { reason: 'max_output_tokens' },
+      usage: {
+        input_tokens: 80,
+        output_tokens: 500,
+        output_tokens_details: { reasoning_tokens: 480 },
+      },
+    }));
+    const provider = createOpenAiEstimateProvider(loadAiConfig(billableEnv), {
+      client: { responses: { create } },
+    });
+    try {
+      await provider.analyze({ title: 't', description: 'd', category: null, techStackNames: [] });
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toMatchObject({ code: 'AI_INVALID_RESPONSE' });
+      expect(error.details.billableAttempted).toBe(true);
+      expect(error.details.usage.outputTokens).toBe(500);
+      expect(error.details.usage.requestId).toBe('resp_incomplete');
+    }
   });
 
   it('maps timeout and 429 without retry', async () => {
@@ -446,6 +487,40 @@ describe('createEstimateService', () => {
     ).rejects.toMatchObject({ code: 'AI_INVALID_RESPONSE' });
     expect(create).toHaveBeenCalledTimes(1);
     expect(usageLedger.settle).toHaveBeenCalled();
+  });
+
+  it('settles usage when incomplete OpenAI response was already billed', async () => {
+    const create = vi.fn(async () => ({
+      id: 'resp_inc2',
+      status: 'incomplete',
+      usage: {
+        input_tokens: 40,
+        output_tokens: 200,
+        output_tokens_details: { reasoning_tokens: 180 },
+      },
+    }));
+    const aiConfig = loadAiConfig(billableEnv);
+    const provider = createOpenAiEstimateProvider(aiConfig, {
+      client: { responses: { create } },
+    });
+    const usageLedger = {
+      reserve: vi.fn(async () => ({ id: 3n, reservedMicroUsd: 500n, monthKey: '2026-10' })),
+      settle: vi.fn(async () => {}),
+      release: vi.fn(async () => {}),
+      markUncertain: vi.fn(async () => {}),
+    };
+    const service = createEstimateService({ prisma, provider, aiConfig, usageLedger });
+    await expect(
+      service.analyzePrice(
+        { title: 't', description: 'd', category: null, techStackIds: [] },
+        { userId: 1 },
+      ),
+    ).rejects.toMatchObject({ code: 'AI_INVALID_RESPONSE' });
+    expect(usageLedger.settle).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 3n }),
+      expect.objectContaining({ outputTokens: 200, requestId: 'resp_inc2' }),
+    );
+    expect(usageLedger.release).not.toHaveBeenCalled();
   });
 
   it('settles usage on OpenAI fake success and recomputes total', async () => {

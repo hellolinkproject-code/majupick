@@ -317,8 +317,10 @@ OpenAI 연동 코드·비용 보호(B-01). **실제 과금 HTTP는 기본 차단
 
 **한계(문서화)**
 - 월간 예산·동시성은 PostgreSQL로 다중 인스턴스에 안전하나, 사용자당 RPM은 여전히 프로세스 메모리 rate-limit(인스턴스별).
-- 실제 OpenAI 과금·모델 접근·소액 검증은 STEP 08-B-2(사용자 승인 후).
+- 실제 OpenAI 과금·모델 접근·소액 검증은 사용자 승인 후(STEP 08-B-2 점검 이후).
 - 견적 결과 본문은 저장하지 않는다(D-27). 사용량·비용 메타만 저장.
+- Responses `output_tokens`에 reasoning이 포함된다. incomplete/refusal도 `billableAttempted`로 예약을 환불하지 않는다. 월 경계는 UTC `YYYY-MM`.
+- 동일 `provider_request_id` 재정산은 애플리케이션에서 차단한다(부분 UNIQUE 인덱스는 추후 가능).
 
 **아직 하지 않은 것 (완료를 주장하지 않음)**
 - 실제 OpenAI 키로 소액 호출·응답 품질 검증(STEP 08-B-2).

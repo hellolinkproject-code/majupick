@@ -126,11 +126,17 @@ export function createEstimateService({ prisma, provider, aiConfig = null, usage
       raw = await provider.analyze(providerInput);
     } catch (error) {
       const mapped = mapOpenAiError(error);
+      const details = error instanceof HttpError ? error.details : mapped.details;
+      const usage = details?.usage;
+      const billableAttempted = details?.billableAttempted === true;
       const uncertain =
+        billableAttempted ||
         mapped.code === 'AI_TIMEOUT' ||
         mapped.code === 'AI_NETWORK' ||
-        mapped.code === 'AI_UNAVAILABLE';
-      if (uncertain) await usageLedger.markUncertain(reservation, mapped.code);
+        mapped.code === 'AI_UNAVAILABLE' ||
+        mapped.code === 'AI_INVALID_RESPONSE';
+      if (billableAttempted && usage) await usageLedger.settle(reservation, usage);
+      else if (uncertain) await usageLedger.markUncertain(reservation, mapped.code);
       else await usageLedger.release(reservation, mapped.code);
       throw mapped;
     }
@@ -148,7 +154,12 @@ export function createEstimateService({ prisma, provider, aiConfig = null, usage
       );
     }
 
-    await usageLedger.settle(reservation, raw.usage ?? {});
+    // usage가 없으면 과소 정산을 피하기 위해 예약을 확정(보수적)
+    if (!raw?.usage || (raw.usage.inputTokens === 0 && raw.usage.outputTokens === 0)) {
+      await usageLedger.markUncertain(reservation, 'AI_USAGE_MISSING');
+    } else {
+      await usageLedger.settle(reservation, raw.usage);
+    }
     return toDto(parsed, false);
   }
 

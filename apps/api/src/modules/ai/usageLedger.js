@@ -100,6 +100,13 @@ export function createUsageLedger({ prisma, aiConfig }) {
    * 예산 초과로 차액을 못 올릴 때는 FAILED_CHARGED로 두고 예약을 유지(보수적).
    */
   async function settle(reservation, usage) {
+    if (!aiConfig.openai.pricing) {
+      throw new HttpError(
+        503,
+        'AI_PRICING_UNCONFIGURED',
+        '모델 가격이 설정되지 않아 비용을 정산할 수 없습니다.',
+      );
+    }
     const inputTokens = Number(usage?.inputTokens ?? 0);
     const outputTokens = Number(usage?.outputTokens ?? 0);
     const actual = estimateCostMicroUsd(
@@ -107,8 +114,54 @@ export function createUsageLedger({ prisma, aiConfig }) {
       BigInt(Math.max(0, outputTokens)),
       aiConfig.openai.pricing,
     );
+    const requestId =
+      typeof usage?.requestId === 'string' && usage.requestId.trim() !== ''
+        ? usage.requestId.trim()
+        : null;
 
     await prisma.$transaction(async (tx) => {
+      const current = await tx.aiUsageLedger.findUnique({ where: { id: reservation.id } });
+      // 이미 정산·불확실 처리된 행은 재처리하지 않는다(중복 차감 방지).
+      if (!current || current.status !== 'RESERVED') return;
+
+      // 동일 OpenAI response id가 이미 SETTLED면 이번 예약만 환불(중복 과금 기록 방지).
+      if (requestId) {
+        const dup = await tx.aiUsageLedger.findFirst({
+          where: {
+            providerRequestId: requestId,
+            status: 'SETTLED',
+            NOT: { id: reservation.id },
+          },
+        });
+        if (dup) {
+          const [monthRow] = await tx.$queryRaw`
+            SELECT committed_micro_usd FROM ai_budget_months
+            WHERE month_key = ${reservation.monthKey} FOR UPDATE
+          `;
+          const committed = BigInt(monthRow.committed_micro_usd);
+          const next =
+            committed >= reservation.reservedMicroUsd
+              ? committed - reservation.reservedMicroUsd
+              : 0n;
+          await tx.$executeRaw`
+            UPDATE ai_budget_months
+            SET committed_micro_usd = ${next}, updated_at = NOW()
+            WHERE month_key = ${reservation.monthKey}
+          `;
+          await tx.aiUsageLedger.update({
+            where: { id: reservation.id },
+            data: {
+              status: 'RELEASED',
+              settledMicroUsd: 0n,
+              errorCode: 'AI_DUPLICATE_REQUEST',
+              providerRequestId: requestId,
+              settledAt: new Date(),
+            },
+          });
+          return;
+        }
+      }
+
       await tx.$executeRaw`
         SELECT month_key FROM ai_budget_months WHERE month_key = ${reservation.monthKey} FOR UPDATE
       `;
@@ -139,7 +192,7 @@ export function createUsageLedger({ prisma, aiConfig }) {
           settledMicroUsd: actual,
           inputTokens: Number.isFinite(inputTokens) ? inputTokens : null,
           outputTokens: Number.isFinite(outputTokens) ? outputTokens : null,
-          providerRequestId: usage?.requestId ?? null,
+          providerRequestId: requestId,
           settledAt: new Date(),
         },
       });

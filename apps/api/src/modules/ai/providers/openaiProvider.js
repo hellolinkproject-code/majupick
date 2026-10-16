@@ -95,13 +95,40 @@ function extractOutputText(response) {
   return null;
 }
 
-function readUsage(response) {
+/**
+ * Responses API usage. output_tokens에는 reasoning_tokens가 포함된다.
+ * 필드가 어긋난 응답에도 과소 정산되지 않도록 max로 보수적으로 잡는다.
+ * @param {object} response
+ */
+export function readUsage(response) {
   const usage = response?.usage ?? {};
+  const inputTokens = Number(usage.input_tokens ?? usage.prompt_tokens ?? 0) || 0;
+  const outputTokens = Number(usage.output_tokens ?? usage.completion_tokens ?? 0) || 0;
+  const reasoningTokens = Number(usage.output_tokens_details?.reasoning_tokens ?? 0) || 0;
   return {
-    inputTokens: Number(usage.input_tokens ?? usage.prompt_tokens ?? 0) || 0,
-    outputTokens: Number(usage.output_tokens ?? usage.completion_tokens ?? 0) || 0,
+    inputTokens,
+    outputTokens: Math.max(outputTokens, reasoningTokens),
+    reasoningTokens,
     requestId: typeof response?.id === 'string' ? response.id : null,
   };
+}
+
+function hasRefusal(response) {
+  const outputs = Array.isArray(response?.output) ? response.output : [];
+  for (const item of outputs) {
+    const contents = Array.isArray(item?.content) ? item.content : [];
+    for (const part of contents) {
+      if (part?.type === 'refusal' || typeof part?.refusal === 'string') return true;
+    }
+  }
+  return Boolean(response?.refusal);
+}
+
+function billableFailure(code, message, response) {
+  return new HttpError(502, code, message, {
+    billableAttempted: true,
+    usage: readUsage(response),
+  });
 }
 
 /**
@@ -149,6 +176,10 @@ export function createOpenAiEstimateProvider(aiConfig, deps = {}) {
           model,
           store: false,
           max_output_tokens: maxOutputTokens,
+          // gpt-6-luna: 견적 JSON에는 고노력 reasoning이 필요 없어 비용을 낮춘다.
+          ...(model === 'gpt-6-luna' || model.startsWith('gpt-6-luna')
+            ? { reasoning: { effort: 'low' } }
+            : {}),
           // 도구·웹 검색 비활성: tools 미전달
           input: [
             { role: 'system', content: SYSTEM_PROMPT },
@@ -160,20 +191,28 @@ export function createOpenAiEstimateProvider(aiConfig, deps = {}) {
         throw mapOpenAiError(error);
       }
 
+      // incomplete/failed/refusal도 입력·reasoning 토큰이 과금됐을 수 있다 → 예약을 환불하지 않는다.
       if (response?.status === 'incomplete' || response?.status === 'failed') {
-        throw new HttpError(
-          502,
+        throw billableFailure(
           'AI_INVALID_RESPONSE',
           'AI 응답이 완료되지 않았습니다. 잠시 후 다시 시도해 주세요.',
+          response,
+        );
+      }
+      if (hasRefusal(response)) {
+        throw billableFailure(
+          'AI_INVALID_RESPONSE',
+          'AI가 요청을 처리할 수 없습니다. 입력 내용을 바꾼 뒤 다시 시도해 주세요.',
+          response,
         );
       }
 
       const text = extractOutputText(response);
       if (!text) {
-        throw new HttpError(
-          502,
+        throw billableFailure(
           'AI_INVALID_RESPONSE',
           'AI 응답 형식이 올바르지 않습니다. 잠시 후 다시 시도해 주세요.',
+          response,
         );
       }
 
@@ -181,10 +220,10 @@ export function createOpenAiEstimateProvider(aiConfig, deps = {}) {
       try {
         parsed = JSON.parse(text);
       } catch {
-        throw new HttpError(
-          502,
+        throw billableFailure(
           'AI_INVALID_RESPONSE',
           'AI 응답 형식이 올바르지 않습니다. 잠시 후 다시 시도해 주세요.',
+          response,
         );
       }
 
