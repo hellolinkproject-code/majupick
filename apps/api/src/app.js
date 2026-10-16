@@ -6,11 +6,18 @@ import { errorHandler } from './middlewares/errorHandler.js';
 
 /**
  * @param {ReturnType<import('./config/env.js').loadConfig>} config
- * @param {{ prisma?: object, authConfig?: ReturnType<import('./config/auth.js').loadAuthConfig>, googleOAuth?: object | null, imageStorage?: object | null }} [deps]
+ * @param {{ prisma?: object, authConfig?: ReturnType<import('./config/auth.js').loadAuthConfig>, googleOAuth?: object | null, imageStorage?: object | null, aiConfig?: object | null, estimateProvider?: object | null }} [deps]
  */
 export function createApp(
   config,
-  { prisma, authConfig, googleOAuth = null, imageStorage = null } = {},
+  {
+    prisma,
+    authConfig,
+    googleOAuth = null,
+    imageStorage = null,
+    aiConfig = null,
+    estimateProvider = null,
+  } = {},
 ) {
   const app = express();
 
@@ -18,7 +25,18 @@ export function createApp(
   app.use(cors({ origin: config.corsOrigins, credentials: true }));
   app.use(express.json({ limit: '100kb' }));
 
-  app.use('/api', createApiRouter({ config, prisma, authConfig, googleOAuth, imageStorage }));
+  app.use(
+    '/api',
+    createApiRouter({
+      config,
+      prisma,
+      authConfig,
+      googleOAuth,
+      imageStorage,
+      aiConfig,
+      estimateProvider,
+    }),
+  );
 
   app.use(notFound);
   app.use(errorHandler);

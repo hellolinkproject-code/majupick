@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import { healthRouter } from './health.js';
 import { metaRouter } from './meta.js';
+import { createAiRouter } from '../modules/ai/ai.router.js';
+import { createEstimateProvider } from '../modules/ai/providers/index.js';
 import { createApplicationsRouter } from '../modules/applications/applications.router.js';
 import { createAuthRouter } from '../modules/auth/auth.router.js';
 import { createBookmarksRouter } from '../modules/bookmarks/bookmarks.router.js';
@@ -17,6 +19,7 @@ import { createUploadsRouter } from '../modules/uploads/uploads.router.js';
 /**
  * DB(prisma)·인증 설정이 없으면 health·meta만 연결한다(DB 없는 단위 테스트용).
  * 이미지 저장소가 없으면 업로드 API를 연결하지 않는다.
+ * AI 설정이 없으면 단가 분석 API를 연결하지 않는다.
  */
 export function createApiRouter({
   config,
@@ -24,6 +27,8 @@ export function createApiRouter({
   authConfig,
   googleOAuth = null,
   imageStorage = null,
+  aiConfig = null,
+  estimateProvider = null,
 } = {}) {
   const apiRouter = Router();
 
@@ -39,6 +44,10 @@ export function createApiRouter({
     apiRouter.use(createApplicationsRouter({ prisma, authConfig }));
     apiRouter.use(createBookmarksRouter({ prisma, authConfig }));
     apiRouter.use('/notifications', createNotificationsRouter({ prisma, authConfig }));
+    if (aiConfig) {
+      const provider = estimateProvider ?? createEstimateProvider(aiConfig);
+      apiRouter.use('/ai', createAiRouter({ prisma, authConfig, aiConfig, provider }));
+    }
     if (imageStorage) {
       apiRouter.use('/uploads', createUploadsRouter({ prisma, authConfig, imageStorage }));
     }

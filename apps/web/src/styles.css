@@ -626,6 +626,95 @@ a {
   margin-top: 0;
 }
 
+.ai-estimate {
+  margin: 1.25rem 0 0;
+  padding: 1rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+  background: #f8fafc;
+}
+
+.ai-estimate__header h3 {
+  margin: 0 0 0.35rem;
+  font-size: 1rem;
+}
+
+.ai-estimate__lead {
+  margin: 0 0 0.75rem;
+  color: #4b5563;
+  font-size: 0.875rem;
+  line-height: 1.45;
+}
+
+.ai-estimate__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.ai-estimate__report {
+  margin-top: 1rem;
+  display: grid;
+  gap: 0.75rem;
+}
+
+.ai-estimate__badge {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: #1d4ed8;
+}
+
+.ai-estimate__table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.ai-estimate__table {
+  width: 100%;
+  min-width: 36rem;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  background: #fff;
+}
+
+.ai-estimate__table caption {
+  caption-side: top;
+  text-align: left;
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.ai-estimate__table th,
+.ai-estimate__table td {
+  padding: 0.55rem 0.65rem;
+  border: 1px solid #e5e7eb;
+  text-align: left;
+  vertical-align: top;
+}
+
+.ai-estimate__table th {
+  background: #f3f4f6;
+  font-weight: 600;
+}
+
+.ai-estimate__amount {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-estimate__total {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.ai-estimate__assumptions {
+  margin: 0;
+  padding-left: 1.15rem;
+  color: #6b7280;
+  font-size: 0.8125rem;
+}
+
 .project-review {
   display: grid;
   gap: 0.5rem;
@@ -1585,6 +1674,20 @@ a {
   .applicant-card__terms {
     display: grid;
     grid-template-columns: 1fr;
+  }
+
+  .ai-estimate {
+    padding: 0.85rem;
+  }
+
+  .ai-estimate__actions .button,
+  .ai-estimate__report > .button {
+    width: 100%;
+  }
+
+  .ai-estimate__table {
+    min-width: 28rem;
+    font-size: 0.8125rem;
   }
 }
 

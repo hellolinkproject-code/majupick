@@ -265,6 +265,57 @@ describe('project registration funnel', () => {
     },
     FUNNEL_TIMEOUT,
   );
+
+  it(
+    'runs AI price analysis on step 2 and applies the total to the budget field',
+    async () => {
+      renderAt('/projects/new', client, {
+        'POST /ai/price-analyses': ({ body }) => {
+          expect(body).toMatchObject({
+            title: '쇼핑몰 리뉴얼',
+            description: '반응형 쇼핑몰',
+            category: 'WEB',
+            techStackIds: [],
+          });
+          return {
+            data: {
+              data: {
+                items: [
+                  {
+                    name: '화면·반응형 UI',
+                    description: '주요 페이지',
+                    estimatedAmount: '1000000',
+                    rationale: '약 5일',
+                  },
+                  {
+                    name: '핵심 API',
+                    description: 'CRUD',
+                    estimatedAmount: '1500000',
+                    rationale: '약 6일',
+                  },
+                ],
+                totalAmount: '2500000',
+                assumptions: ['모의 산정'],
+                isMock: true,
+              },
+            },
+          };
+        },
+      });
+
+      await fillStepOne();
+      expect(screen.getByRole('heading', { name: 'AI 단가 분석' })).toBeTruthy();
+      click('AI로 단가 분석');
+      expect(await screen.findByText('모의(mock) 분석 결과 · 실제 LLM 호출 없음')).toBeTruthy();
+      expect(screen.getByText('화면·반응형 UI')).toBeTruthy();
+      expect(screen.getByText(/총 예상 금액/)).toBeTruthy();
+      expect(screen.getByText('2,500,000원')).toBeTruthy();
+      click('예산에 반영');
+      expect(screen.getByLabelText(/^예산/).value).toBe('2500000');
+      expect(callsTo('POST /ai/price-analyses')).toHaveLength(1);
+    },
+    FUNNEL_TIMEOUT,
+  );
 });
 
 describe('project registration access', () => {

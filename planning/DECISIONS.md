@@ -298,6 +298,19 @@ Google 로그인은 D-23·D-24를 구현하면서, RFP가 정하지 않은 프�
 - 취소 알림(D-112), 운영 스케줄러 연결과 STAT-03 HTTP(D-113), 배포 URL 시나리오.
 - 실제 키보드(OS 포커스가 있는 브라우저)에서의 Tab 이동, 스크린 리더 실사용 확인.
 
+### 2.20 STEP 08-A에서 추가된 항목
+
+AI 단가 분석 기초(B-01~B-03, AI-01). D-27·D-28은 **상태를 바꾸지 않았다**(추천안대로 구현). 아래 새 항목도 **제안**. API 차이는 API_SPEC_v1 §12.1. DB 변경 없음.
+
+| ID | 주제 | RFP | 추천안 / 결정 | 대안 | 확정 시점 | 상태 |
+|---|---|---|---|---|---|---|
+| D-115 | AI 모드 환경 변수·provider | 구조화 JSON(§5), D-27 | **`AI_ESTIMATE_MODE=mock\|openai`(기본 mock).** TECH_STACK 초안의 `LLM_PROVIDER` 대신 이 이름을 쓴다. mock은 결정적 로컬 산정. openai는 STEP 08-A에서 stub(503, 외부 HTTP·SDK 호출 없음). 키(`OPENAI_API_KEY`)는 설정에만 두고 로그·응답에 넣지 않는다. 응답 검증은 zod 없이 수동 스키마 | `LLM_PROVIDER` 이름 유지, 지금 실제 OpenAI 연결 | STEP 08-A | 제안 (구현) |
+| D-116 | AI 호출 제한 | D-27 사용자당 제한 | **사용자당 20회/60분**(메모리 `express-rate-limit`, `AI_ESTIMATE_RATE_LIMIT_MAX`·`WINDOW_MINUTES`). 초과 429 `RATE_LIMITED`. 서버 1대 기준(다중 인스턴스는 공유 저장소 필요) | 일일 DB 카운트, IP만 제한 | STEP 08-A | 제안 (구현) |
+
+**아직 하지 않은 것 (완료를 주장하지 않음)**
+- 실제 OpenAI API 연결·프롬프트·타임아웃(STEP 08-B).
+- 분석 결과 DB 저장(D-27 비권장).
+
 ---
 
 ## 3. 확정 기록 양식
@@ -470,3 +483,14 @@ Google 로그인은 D-23·D-24를 구현하면서, RFP가 정하지 않은 프�
 | 7 | ERD | - | **변경 없음**(`CANCELLED`·`cancelled_at`·`PROJECT_CANCELLED` 기존 값 사용) | - |
 | 8 | D-13, D-50, D-79~D-108 | 제안/부분 확정 | **변동 없음** | - |
 | 9 | D-02 | 확인 필요 | **변동 없음.** 새 라이브러리·외부 서비스 없음 | - |
+
+### 4.15 STEP 08-A (2026-10-16)
+
+| # | 대상 | 이전 | 변경 | 근거 |
+|---|---|---|---|---|
+| 1 | API_SPEC_v1 AI-01 | 설계 | 구현·단위·실제 PostgreSQL(테스트 DB)·화면 단위 테스트로 검증. 차이는 API_SPEC_v1 §12.1 | STEP 08-A |
+| 2 | TECH_STACK `LLM_PROVIDER` | 초안 이름 | `AI_ESTIMATE_MODE` (+ rate limit 변수). OpenAI는 stub | D-115 |
+| 3 | AI 응답 | `items`·`totalAmount`·`isMock` | + `assumptions` | mock 전제 안내 |
+| 4 | ERD | - | **변경 없음**(결과 미저장, D-27) | - |
+| 5 | D-27, D-28 | 제안 | **변동 없음**(추천안대로 구현) | - |
+| 6 | D-02 | 확인 필요 | **변동 없음.** 새 npm 패키지·외부 서비스 호출 없음(`express-rate-limit` 기존) | - |

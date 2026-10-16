@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AiEstimatePanel } from '../components/project/AiEstimatePanel.jsx';
 import {
   BasicsFields,
   ScheduleFields,
@@ -166,7 +167,10 @@ function ProjectFunnel({ user, categories }) {
         <BasicsFields form={form} setField={setField} errors={errors} categories={categories} />
       )}
       {step === 1 && (
-        <ScheduleFields form={form} setField={setField} errors={errors} today={today} />
+        <>
+          <ScheduleFields form={form} setField={setField} errors={errors} today={today} />
+          <AiEstimatePanel form={form} setField={setField} />
+        </>
       )}
       {step === 2 && (
         <>

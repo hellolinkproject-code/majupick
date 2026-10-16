@@ -1,4 +1,5 @@
 import { createApp } from './app.js';
+import { AiConfigError, loadAiConfig } from './config/ai.js';
 import { AuthConfigError, loadAuthConfig } from './config/auth.js';
 import { DatabaseConfigError, describeDatabase, getDatabaseConfig } from './config/database.js';
 import { loadConfig } from './config/env.js';
@@ -10,6 +11,7 @@ import {
   parseRecruitSyncInterval,
   startRecruitStatusScheduler,
 } from './jobs/recruitStatusScheduler.js';
+import { createEstimateProvider } from './modules/ai/providers/index.js';
 import { createGoogleOAuthClient } from './modules/auth/googleOAuth.js';
 import { runRecruitStatusSync } from './modules/projects/projectClosure.js';
 import { createLocalImageStorage } from './modules/uploads/imageStorage.js';
@@ -19,16 +21,19 @@ const config = loadConfig();
 let database;
 let authConfig;
 let googleConfig;
+let aiConfig;
 let recruitSyncIntervalMs;
 try {
   database = getDatabaseConfig('development');
   authConfig = loadAuthConfig();
   googleConfig = loadGoogleOAuthConfig(process.env, { corsOrigins: config.corsOrigins });
+  aiConfig = loadAiConfig();
   recruitSyncIntervalMs = parseRecruitSyncInterval(process.env.RECRUIT_SYNC_INTERVAL_MS);
 } catch (error) {
   if (
     !(error instanceof DatabaseConfigError) &&
     !(error instanceof AuthConfigError) &&
+    !(error instanceof AiConfigError) &&
     !(error instanceof JobConfigError)
   ) {
     throw error;
@@ -55,14 +60,29 @@ if (config.nodeEnv === 'production') {
   );
 }
 
+if (aiConfig.mode !== 'mock') {
+  console.warn(
+    `[api] AI_ESTIMATE_MODE=${aiConfig.mode}: OpenAI provider is a stub in STEP 08-A (no external calls). Use mock for estimation.`,
+  );
+}
+
 const prisma = createPrismaClient({ target: 'development' });
 const googleOAuth = googleConfig.enabled ? createGoogleOAuthClient(googleConfig) : null;
 const imageStorage = createLocalImageStorage(loadUploadConfig());
-const app = createApp(config, { prisma, authConfig, googleOAuth, imageStorage });
+const estimateProvider = createEstimateProvider(aiConfig);
+const app = createApp(config, {
+  prisma,
+  authConfig,
+  googleOAuth,
+  imageStorage,
+  aiConfig,
+  estimateProvider,
+});
 
 const server = app.listen(config.port, () => {
   console.log(`[api] listening on http://localhost:${config.port} (${config.nodeEnv})`);
   console.log(`[api] database: ${describeDatabase(database)}`);
+  console.log(`[api] AI estimate mode: ${aiConfig.mode}`);
 });
 
 const recruitSync =

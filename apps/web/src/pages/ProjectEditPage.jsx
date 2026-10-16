@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { AiEstimatePanel } from '../components/project/AiEstimatePanel.jsx';
 import {
   BasicsFields,
   ScheduleFields,
@@ -73,6 +74,11 @@ function EditForm({ project, categories, viewerId }) {
         errors={errors}
         today={today}
         lockedFields={project.lockedFields}
+      />
+      <AiEstimatePanel
+        form={form}
+        setField={setField}
+        budgetLocked={project.lockedFields?.includes('budget')}
       />
       <h2>기술 스택</h2>
       <TechStackField form={form} setField={setField} errors={errors} />
