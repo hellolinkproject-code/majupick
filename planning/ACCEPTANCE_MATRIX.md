@@ -92,8 +92,8 @@ BE 모듈 목록: `auth`, `users`, `techStacks`, `uploads`, `projects`, `project
 
 | ID | 요구사항 | 페이즈 | BE 모듈 | FE 화면 | API | 테스트 | 상태 |
 |---|---|---|---|---|---|---|---|
-| B-01 | AI 분석 요청(구조화 JSON 파싱) | 3 | ai | 등록 퍼널 2단계 | AI-01 | U: 응답 스키마 검증·재시도. I(mock): 결정적 결과 | 검증 (STEP 08-A: mock provider 결정적 결과, 스키마 실패 1회 재시도 후 502, 의뢰인만·비로그인 401·프리랜서 403·역할 미선택 ROLE_REQUIRED, 사용자당 rate limit 429, OpenAI stub는 네트워크 호출 없이 503. 실제 OpenAI는 STEP 08-B) |
-| B-02 | 분석 리포트(기능·단가·근거·총액) | 3 | ai | AI 분석 결과 | AI-01 | U: 총액 = 항목 합(LLM 값 무시) | 검증 (STEP 08-A: 서버가 항목 합으로 `totalAmount` 재계산, 리포트에 기능명·설명·단가·근거·총액·assumptions. 화면 표·모의 배지 U) |
+| B-01 | AI 분석 요청(구조화 JSON 파싱) | 3 | ai | 등록 퍼널 2단계 | AI-01 | U: 응답 스키마 검증·재시도. I(mock): 결정적 결과 | 부분 구현 (STEP 08-A mock 검증 유지. STEP 08-B-1: OpenAI Responses+Structured Outputs 코드·유료 게이트·Fake Client I. **실제 과금 호출 미검증**) |
+| B-02 | 분석 리포트(기능·단가·근거·총액) | 3 | ai | AI 분석 결과 | AI-01 | U: 총액 = 항목 합(LLM 값 무시) | 검증 (STEP 08-A: 서버가 항목 합으로 `totalAmount` 재계산, 리포트에 기능명·설명·단가·근거·총액·assumptions. 화면 표·모의 배지 U. 08-B-1도 동일 DTO) |
 | B-03 | 예산 반영 | 3 | projects | AI 분석 결과 | AI-01 + PRJ-01/PRJ-03 | E: 반영 버튼 → 예산 칸. I: 지원자 있으면 409 | 부분 구현 (STEP 08-A: 등록 퍼널·수정 화면에서 '예산에 반영' → 예산 칸. 지원자 있을 때 수정 화면은 예산 잠금으로 버튼 비활성. 저장은 기존 PRJ-01/PRJ-03. 지원자 409는 PRJ-03(D-06) 기존 검증) |
 | B-04 | 합의 금액 확정(1회 제안) | 3 | applications, contracts | 수락 모달, 제안 응답 | DEC-01, CTR-01, CTR-02 | I: 제안 → 동의/거부, 재응답 409 | 설계 |
 | B-05 | 금액 결렬 처리 | 3 | contracts | 내 지원 현황, 내 프로젝트 | CTR-02 | I: 지원 거절 + 프로젝트 복귀(D-10), 자동 거절된 지원 유지 | 설계 |

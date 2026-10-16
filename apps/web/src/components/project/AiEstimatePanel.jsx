@@ -55,6 +55,10 @@ export function AiEstimatePanel({ form, setField, budgetLocked = false }) {
           제목·설명·카테고리·기술 스택을 바탕으로 단위 기능별 예상 금액과 근거를 제안합니다. 결과는
           저장되지 않으며, 원하면 예산에 반영할 수 있습니다.
         </p>
+        <p className="form-field__hint">
+          실제 AI 모드에서는 제목·설명이 외부 AI 서비스로 전송될 수 있습니다. 불필요한 개인정보는
+          넣지 마세요.
+        </p>
       </div>
 
       <div className="ai-estimate__actions">

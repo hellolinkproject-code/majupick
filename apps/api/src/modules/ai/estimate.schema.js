@@ -8,17 +8,23 @@ const DESCRIPTION_MAX = 500;
 const RATIONALE_MAX = 500;
 const ITEMS_MIN = 1;
 const ITEMS_MAX = 20;
+/** 기능당 최대 금액(원, 최대 18자리). 비정상 거액 차단. */
+export const AMOUNT_MAX = 999_999_999_999_999_999n;
 
 /** 양의 정수 금액(BigInt). 문자열·안전 정수만 받는다. */
 export function parseEstimateAmount(value) {
-  if (typeof value === 'bigint') return value > 0n ? value : null;
+  if (typeof value === 'bigint') {
+    return value > 0n && value <= AMOUNT_MAX ? value : null;
+  }
   if (typeof value === 'number') {
-    return Number.isSafeInteger(value) && value > 0 ? BigInt(value) : null;
+    return Number.isSafeInteger(value) && value > 0 && BigInt(value) <= AMOUNT_MAX
+      ? BigInt(value)
+      : null;
   }
   if (typeof value !== 'string' || !/^\d{1,18}$/.test(value)) return null;
   try {
     const amount = BigInt(value);
-    return amount > 0n ? amount : null;
+    return amount > 0n && amount <= AMOUNT_MAX ? amount : null;
   } catch {
     return null;
   }
@@ -33,12 +39,15 @@ export function parseEstimateResponse(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { ok: false, reason: 'response must be an object' };
   }
-  const { items, assumptions } = raw;
+  // OpenAI Structured Outputs는 functions, mock/DTO는 items
+  const items = raw.items ?? raw.functions;
+  const { assumptions } = raw;
   if (!Array.isArray(items) || items.length < ITEMS_MIN || items.length > ITEMS_MAX) {
     return { ok: false, reason: `items must have ${ITEMS_MIN}–${ITEMS_MAX} entries` };
   }
 
   const parsedItems = [];
+  const seenNames = new Set();
   for (let i = 0; i < items.length; i += 1) {
     const item = items[i];
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
@@ -53,6 +62,11 @@ export function parseEstimateResponse(raw) {
     if (!name || name.length > NAME_MAX) {
       return { ok: false, reason: `items[${i}].name is invalid` };
     }
+    const nameKey = name.toLowerCase();
+    if (seenNames.has(nameKey)) {
+      return { ok: false, reason: `items[${i}].name is duplicated` };
+    }
+    seenNames.add(nameKey);
     if (!description || description.length > DESCRIPTION_MAX) {
       return { ok: false, reason: `items[${i}].description is invalid` };
     }

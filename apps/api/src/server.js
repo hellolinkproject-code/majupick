@@ -1,5 +1,5 @@
 import { createApp } from './app.js';
-import { AiConfigError, loadAiConfig } from './config/ai.js';
+import { AiConfigError, canMakeBillableCalls, loadAiConfig } from './config/ai.js';
 import { AuthConfigError, loadAuthConfig } from './config/auth.js';
 import { DatabaseConfigError, describeDatabase, getDatabaseConfig } from './config/database.js';
 import { loadConfig } from './config/env.js';
@@ -60,9 +60,13 @@ if (config.nodeEnv === 'production') {
   );
 }
 
-if (aiConfig.mode !== 'mock') {
+if (aiConfig.mode === 'openai' && !canMakeBillableCalls(aiConfig)) {
   console.warn(
-    `[api] AI_ESTIMATE_MODE=${aiConfig.mode}: OpenAI provider is a stub in STEP 08-A (no external calls). Use mock for estimation.`,
+    '[api] AI_ESTIMATE_MODE=openai but billable calls are gated off (need AI_ENABLE_BILLABLE_CALLS=true, API key, pricing, monthly budget > 0). No external OpenAI requests will be made.',
+  );
+} else if (aiConfig.mode === 'openai' && canMakeBillableCalls(aiConfig)) {
+  console.warn(
+    '[api] AI billable OpenAI calls are ENABLED. Project text may be sent to OpenAI and incur cost.',
   );
 }
 

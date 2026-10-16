@@ -728,12 +728,12 @@
 
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
-| AI-01 | POST | `/ai/price-analyses` | CLIENT | B-01, B-02 | 구현 (STEP 08-A, §12.1) |
+| AI-01 | POST | `/ai/price-analyses` | CLIENT | B-01, B-02 | 구현 (STEP 08-A·08-B-1, §12.1) |
 
 **AI-01 단가 분석 요청**
 - 요청: `{ title, description, category?, techStackIds? }` (등록 전 퍼널 입력값으로도 호출 가능하도록 프로젝트 ID를 받지 않음)
-- 처리: LLM 어댑터 호출(실제 또는 mock) → 응답 JSON을 스키마로 검증(실패 시 1회 재시도) → 서버가 총액을 항목 합으로 **다시 계산**
-- 응답 200:
+- 처리: mock이면 로컬 산정(스키마 실패 시 1회 재시도). openai이면 **유료 게이트(D-117)** → 예산 예약 → OpenAI Responses(Structured Outputs) → 스키마 검증(**API 재시도 없음**) → usage 정산 → 서버가 총액을 항목 합으로 **다시 계산**
+- 응답 200: STEP 08-A와 동일 DTO(`items`, `totalAmount`, `assumptions`, `isMock`)
 
 ```json
 {
@@ -749,21 +749,21 @@
 ```
 
 - 예산 반영(B-03): 등록 전에는 FE가 퍼널의 예산 칸에 `totalAmount`를 채운다. 등록된 프로젝트는 `PRJ-03`으로 `budget`을 바꾼다(D-06 제한 적용)
-- 결과는 저장하지 않는다(D-27 제안)
-- 오류: 400, 403, 429 `RATE_LIMITED`(횟수는 D-27), 502 `AI_INVALID_RESPONSE`, 503 `AI_UNAVAILABLE`
+- 견적 결과 본문은 저장하지 않는다(D-27). 사용량·비용 메타만 `ai_usage_ledger`에 기록(D-117)
+- 오류: 400, 403, 429 `RATE_LIMITED` / `AI_BUDGET_EXCEEDED` / `AI_CONCURRENCY_LIMITED` / `AI_PROVIDER_RATE_LIMITED`, 502 `AI_INVALID_RESPONSE`, 503 `AI_UNAVAILABLE`·`AI_BILLABLE_DISABLED`·`AI_KEY_MISSING`·`AI_PRICING_UNCONFIGURED`·`AI_AUTH_FAILED`·`AI_MODEL_UNAVAILABLE`·`AI_PROVIDER_QUOTA`·`AI_TIMEOUT`·`AI_NETWORK`
 
-### 12.1 STEP 08-A 구현 내용과 명세 대비 차이 (AI-01)
+### 12.1 STEP 08-A / 08-B-1 구현 내용과 명세 대비 차이 (AI-01)
 
 | # | 항목 | 명세 | 구현 | 근거 |
 |---|---|---|---|---|
-| 1 | 모드 환경 변수 | TECH_STACK의 `LLM_PROVIDER` | `AI_ESTIMATE_MODE=mock\|openai` (기본 `mock`) | D-115. STEP 08-A는 mock만 산정에 사용 |
-| 2 | OpenAI | 실제 API 호출 | provider 골격만. 호출 시 503 `AI_UNAVAILABLE`, 외부 HTTP 없음 | 비용·키 유출 방지. 실제 연동은 STEP 08-B |
-| 3 | 응답 검증 | zod | 수동 스키마 검증(`estimate.schema.js`) | 기존 모듈과 동일, 새 의존성 없음(D-02) |
-| 4 | 응답 필드 | `items`, `totalAmount`, `isMock` | + `assumptions`(문자열 배열, 선택) | mock 산정 전제 안내 |
-| 5 | 호출 제한 | 사용자당(D-27) | `express-rate-limit`, 기본 20회/60분/사용자(`AI_ESTIMATE_RATE_LIMIT_*`) | D-116 |
-| 6 | 권한 | CLIENT | 로그인 → 역할 → 의뢰인만. 프로필 완성은 요구하지 않음(등록 전 퍼널에서도 호출) | AI-01 |
-| 7 | 화면 | 등록 퍼널 2단계 | 등록 2단계 + 수정 화면 패널. '예산에 반영'은 FE가 `budget`만 채움 | D-28, B-03 |
-| 8 | DB | 결과 저장 없음 | 테이블·마이그레이션 없음 | D-27 |
+| 1 | 모드 환경 변수 | TECH_STACK의 `LLM_PROVIDER` | `AI_ESTIMATE_MODE=mock\|openai` (기본 `mock`) | D-115 |
+| 2 | OpenAI | 실제 API 호출 | 코드 구현 + **기본 유료 차단**(D-117). Fake Client로만 검증. 실호출 미검증 | STEP 08-B-1 |
+| 3 | 응답 검증 | zod | 수동 스키마(`estimate.schema.js`). OpenAI JSON Schema `functions`→`items` 매핑 | D-02 |
+| 4 | 응답 필드 | `items`, `totalAmount`, `isMock` | + `assumptions` | mock·실모드 공통 DTO |
+| 5 | 호출 제한 | 사용자당(D-27) | 사용자 RPM + 전역 RPM + DB 동시 예약 + 월간 예산 | D-116, D-117 |
+| 6 | 권한 | CLIENT | 로그인 → 역할 → 의뢰인만 | AI-01 |
+| 7 | 화면 | 등록 퍼널 2단계 | 등록·수정 패널. 외부 전송 안내 문구 추가 | D-28, B-03 |
+| 8 | DB | 결과 저장 없음 | 견적 본문 없음. `ai_budget_months`·`ai_usage_ledger`만 | D-27, D-117 |
 
 ---
 

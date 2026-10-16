@@ -8,6 +8,8 @@ import {
 } from '../src/config/database.js';
 
 const EXPECTED_TABLES = [
+  'ai_budget_months',
+  'ai_usage_ledger',
   'applications',
   'bookmarks',
   'client_profiles',

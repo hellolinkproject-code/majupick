@@ -2,7 +2,7 @@
 
 의뢰인과 프리랜서를 연결하는 프로젝트 중개 플랫폼 (코드잇 풀스택 JavaScript 과제).
 
-> 현재 단계: **AI 단가 분석 기초(STEP 08-A, `AI_ESTIMATE_MODE=mock`)**. 이메일 회원가입·로그인(STEP 04-A), Google 로그인·역할 선택(STEP 04-B), 역할별 프로필(STEP 04-B-2), 프로젝트 등록·관리(STEP 05-A), 프로젝트 검색·필터·정렬(STEP 05-B), 사용자 공개 프로필(STEP 05-C), 프리랜서 프로젝트 지원(STEP 06-A), 의뢰인 지원자 관리·선정·거절(STEP 06-B), 인앱 알림·모집 마감(STEP 06-C), 북마크·추천(STEP 07-A), 프로젝트 취소·역할별 헤더(STEP 07-B)도 그대로 동작한다. 기본 필수 요구사항별 상태는 `planning/ACCEPTANCE_MATRIX.md` §6. 화면은 홈·로그인·회원가입·Google 완료·계정 연결·역할 선택·내 프로필(의뢰인/프리랜서 프로필 편집, 프로필 이미지)·공개 프로필·프로젝트 찾기·프로젝트 등록(3단계, 2단계에서 AI 단가 분석·예산 반영)·프로젝트 상세(지원, 북마크, 추천 프로젝트, 소유자용 지원자 관리·모집 마감 포함)·수정(AI 단가 분석 포함)·내 프로젝트·내 지원 현황·내 북마크·알림·404. 로컬 PostgreSQL에 사용자·프로필·기술 스택·프로젝트·지원·알림·북마크·OAuth 상태 테이블이 있다. 실제 OpenAI 연동·계약·전자 서명·결제는 이후 단계다.
+> 현재 단계: **AI 단가 분석 OpenAI 연동 코드·비용 보호(STEP 08-B-1)**. 기본 동작은 여전히 `AI_ESTIMATE_MODE=mock`이며, 유료 호출은 `AI_ENABLE_BILLABLE_CALLS=false`·월간 예산 0으로 **차단**한다(실제 OpenAI HTTP 0건). OpenAI Responses API·Structured Outputs·사용량 원장 코드는 Fake Client 테스트로만 검증했다. 이메일 회원가입·로그인(STEP 04-A), Google 로그인·역할 선택(STEP 04-B), 역할별 프로필(STEP 04-B-2), 프로젝트 등록·관리(STEP 05-A), 프로젝트 검색·필터·정렬(STEP 05-B), 사용자 공개 프로필(STEP 05-C), 프리랜서 프로젝트 지원(STEP 06-A), 의뢰인 지원자 관리·선정·거절(STEP 06-B), 인앱 알림·모집 마감(STEP 06-C), 북마크·추천(STEP 07-A), 프로젝트 취소·역할별 헤더(STEP 07-B), AI mock·예산 반영(STEP 08-A)도 그대로 동작한다. 기본 필수 요구사항별 상태는 `planning/ACCEPTANCE_MATRIX.md` §6. 로컬 PostgreSQL에 사용자·프로필·기술 스택·프로젝트·지원·알림·북마크·OAuth·AI 사용량 원장 테이블이 있다. **실제 과금 API 호출·소액 검증은 사용자 승인 후 STEP 08-B-2.** 계약·전자 서명·결제는 이후 단계다.
 > 기획·설계 문서는 [`planning/`](./planning)에 있다.
 
 ## 기술 스택
@@ -62,6 +62,25 @@ npm run dev
 ## 환경 변수
 
 루트의 `.env` 하나를 백엔드와 프론트엔드가 함께 읽는다. 프론트엔드에는 `VITE_`로 시작하는 변수만 노출되므로 비밀 값에는 `VITE_`를 붙이지 않는다. `.env`는 커밋하지 않는다.
+
+### AI 단가 분석 (STEP 08-B-1)
+
+| 상태               | 설명                                                                                          |
+| ------------------ | --------------------------------------------------------------------------------------------- |
+| Mock 모드 정상     | `AI_ESTIMATE_MODE=mock`(기본). 외부 HTTP 없음                                                 |
+| OpenAI 연결 코드   | Responses API + Structured Outputs + 사용량 원장 구현됨                                       |
+| Fake Client 테스트 | 단위·DB 테스트에서만 검증. 실제 SDK 네트워크 차단                                             |
+| 실제 과금 호출     | **미검증·기본 차단.** `AI_ENABLE_BILLABLE_CALLS=false`, `AI_ESTIMATE_MONTHLY_BUDGET_USD=0`    |
+| 사용량·예산        | PostgreSQL `ai_usage_ledger`·`ai_budget_months`(micro-USD). Fake 경로에서 예약·정산·경합 검증 |
+
+실호출을 켜려면(이 저장소에서는 직접 활성화하지 않음):
+
+1. 서버에만 `OPENAI_API_KEY` 설정(브라우저·`VITE_` 금지)
+2. `OPENAI_MODEL=gpt-6-luna`(또는 단가 변수를 채운 다른 모델)
+3. `AI_ESTIMATE_MODE=openai`
+4. `AI_ESTIMATE_MONTHLY_BUDGET_USD`를 0보다 큰 소액으로
+5. `AI_ENABLE_BILLABLE_CALLS=true`
+6. 사용자 승인 후 STEP 08-B-2에서 소액 검증
 
 ## 데이터베이스 (로컬 PostgreSQL)
 

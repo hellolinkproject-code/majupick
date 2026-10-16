@@ -684,6 +684,17 @@ erDiagram
 | 적용 | `prisma migrate diff`로 SQL을 만들어 검토(생성문만 있음) → 적용 전 개발 DB 지문(행 수 + 내용 해시, 이번부터 `notifications` 포함) 기록 → `workbridge_dev`(`db:migrate:deploy`), `workbridge_test`(`db:migrate:test`) → `db:generate`. `migrate dev`·`reset`·`push`는 쓰지 않았다. 개발 DB 사용자 8·프로젝트 2·지원 0·Google 연결 1·알림 0과 내용 해시가 그대로 |
 | 검증 | `prisma migrate diff --from-migrations --to-schema --exit-code`: 차이 없음. DB 테스트(`bookmarks.integration.test.js`)가 두 번째 행 거부(P2002)와 `pg_indexes`의 인덱스 이름을 확인. `check-db.js`·`database.integration.test.js`의 기대 테이블 목록에 `bookmarks` 추가 |
 
+### 7.10 STEP 08-B-1 AI 사용량·월간 예산 (2026-10-16)
+
+| 항목 | 내용 |
+|---|---|
+| 마이그레이션 | `apps/api/prisma/migrations/20261016100000_ai_usage_ledger/migration.sql` |
+| 추가 | enum `ai_usage_status`, 테이블 `ai_budget_months`(`month_key` PK, `committed_micro_usd`), `ai_usage_ledger`(예약·정산·usage 메타), 인덱스·FK·CHECK |
+| 단위 | 비용은 **micro-USD**(1 USD = 1_000_000) bigint. 견적 결과 JSON 본문은 저장하지 않음(D-27) |
+| 동시성 | 월 행 `FOR UPDATE`로 예약 직렬화. `RESERVED` 개수로 전역 동시 호출 제한 |
+| 바꾸지 않은 것 | 기존 사용자·프로젝트 등 행. `DROP`·`TRUNCATE` 없음 |
+| 적용 | `db:migrate:deploy`·`db:migrate:test`·`db:generate` |
+
 ### 7.2 설계와 다른 점과 이유
 
 | # | 설계(§3) | 구현 | 이유 |

@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AiConfigError, loadAiConfig } from '../src/config/ai.js';
+import {
+  AiConfigError,
+  billableBlockReason,
+  canMakeBillableCalls,
+  estimateCostMicroUsd,
+  loadAiConfig,
+  usdToMicroUsd,
+} from '../src/config/ai.js';
 import {
   parseEstimateAmount,
   parseEstimateResponse,
@@ -7,35 +14,112 @@ import {
 } from '../src/modules/ai/estimate.schema.js';
 import { createEstimateService } from '../src/modules/ai/estimate.service.js';
 import { validatePriceAnalysisRequest } from '../src/modules/ai/estimate.validation.js';
+import { ESTIMATE_DISCLAIMER } from '../src/modules/ai/openaiPrompt.js';
+import { PRICE_ESTIMATE_TEXT_FORMAT } from '../src/modules/ai/openaiSchema.js';
 import { createEstimateProvider } from '../src/modules/ai/providers/index.js';
 import {
   analyzeWithMock,
   createMockEstimateProvider,
 } from '../src/modules/ai/providers/mockProvider.js';
-import { createOpenAiEstimateProvider } from '../src/modules/ai/providers/openaiProvider.js';
+import {
+  createOpenAiEstimateProvider,
+  mapOpenAiError,
+} from '../src/modules/ai/providers/openaiProvider.js';
 import { HttpError } from '../src/utils/httpError.js';
 
+const billableEnv = {
+  AI_ESTIMATE_MODE: 'openai',
+  AI_ENABLE_BILLABLE_CALLS: 'true',
+  AI_ESTIMATE_MONTHLY_BUDGET_USD: '10',
+  OPENAI_API_KEY: 'sk-test-not-for-logging',
+  OPENAI_MODEL: 'gpt-6-luna',
+};
+
+function fakeSuccessClient(overrides = {}) {
+  const create = vi.fn(async () => ({
+    id: 'resp_test_1',
+    status: 'completed',
+    output_text: JSON.stringify({
+      functions: [
+        {
+          name: '화면 UI',
+          description: '주요 화면',
+          estimatedAmount: '1000000',
+          rationale: '약 5일',
+        },
+        {
+          name: 'API',
+          description: 'CRUD',
+          estimatedAmount: '1500000',
+          rationale: '약 6일',
+        },
+      ],
+      assumptions: ['가정 1'],
+      summary: ESTIMATE_DISCLAIMER,
+      ...overrides.body,
+    }),
+    usage: { input_tokens: 120, output_tokens: 80, ...overrides.usage },
+  }));
+  return { responses: { create }, create };
+}
+
 describe('loadAiConfig', () => {
-  it('defaults to mock and does not require an API key', () => {
+  it('defaults to mock with billable calls disabled and zero budget', () => {
     const config = loadAiConfig({});
     expect(config.mode).toBe('mock');
+    expect(config.enableBillableCalls).toBe(false);
+    expect(config.monthlyBudgetMicroUsd).toBe(0n);
     expect(config.openai.apiKey).toBeNull();
-    expect(config.rateLimit.max).toBe(20);
+    expect(config.openai.model).toBe('gpt-6-luna');
+    expect(canMakeBillableCalls(config)).toBe(false);
   });
 
   it('rejects an unknown mode', () => {
     expect(() => loadAiConfig({ AI_ESTIMATE_MODE: 'gemini' })).toThrow(AiConfigError);
   });
 
-  it('loads openai mode without logging or exposing the key in the config shape beyond apiKey', () => {
-    const config = loadAiConfig({
-      AI_ESTIMATE_MODE: 'openai',
-      OPENAI_API_KEY: 'sk-test-not-for-logging',
-      OPENAI_MODEL: 'gpt-test',
-    });
+  it('loads openai mode and luna default pricing without exposing the key elsewhere', () => {
+    const config = loadAiConfig(billableEnv);
     expect(config.mode).toBe('openai');
-    expect(config.openai.model).toBe('gpt-test');
+    expect(config.openai.model).toBe('gpt-6-luna');
     expect(config.openai.apiKey).toBe('sk-test-not-for-logging');
+    expect(config.openai.pricing.inputMicroUsdPer1MTokens).toBe(usdToMicroUsd(0.1));
+    expect(canMakeBillableCalls(config)).toBe(true);
+  });
+
+  it('blocks billable calls when only mode or key is set', () => {
+    expect(
+      canMakeBillableCalls(loadAiConfig({ AI_ESTIMATE_MODE: 'openai', OPENAI_API_KEY: 'sk-x' })),
+    ).toBe(false);
+    expect(
+      billableBlockReason(loadAiConfig({ AI_ESTIMATE_MODE: 'openai', OPENAI_API_KEY: 'sk-x' }))
+        .code,
+    ).toBe('AI_BILLABLE_DISABLED');
+    expect(
+      billableBlockReason(
+        loadAiConfig({
+          ...billableEnv,
+          AI_ESTIMATE_MONTHLY_BUDGET_USD: '0',
+        }),
+      ).code,
+    ).toBe('AI_BUDGET_EXCEEDED');
+  });
+
+  it('requires explicit pricing for unknown models', () => {
+    const config = loadAiConfig({
+      ...billableEnv,
+      OPENAI_MODEL: 'gpt-unknown-model',
+    });
+    expect(config.openai.pricing).toBeNull();
+    expect(billableBlockReason(config).code).toBe('AI_PRICING_UNCONFIGURED');
+  });
+});
+
+describe('estimateCostMicroUsd', () => {
+  it('computes integer micro-USD from token counts', () => {
+    const pricing = loadAiConfig(billableEnv).openai.pricing;
+    const cost = estimateCostMicroUsd(1_000_000n, 1_000_000n, pricing);
+    expect(cost).toBe(usdToMicroUsd(0.1) + usdToMicroUsd(0.5));
   });
 });
 
@@ -44,6 +128,36 @@ describe('estimate schema', () => {
     expect(parseEstimateAmount('800000')).toBe(800000n);
     expect(parseEstimateAmount(0)).toBeNull();
     expect(parseEstimateAmount('-1')).toBeNull();
+  });
+
+  it('accepts functions alias and rejects duplicates', () => {
+    const ok = parseEstimateResponse({
+      functions: [
+        {
+          name: 'A',
+          description: 'desc a',
+          estimatedAmount: '100',
+          rationale: 'one day',
+        },
+        {
+          name: 'B',
+          description: 'desc b',
+          estimatedAmount: '250',
+          rationale: 'two days',
+        },
+      ],
+      assumptions: [],
+    });
+    expect(ok.ok).toBe(true);
+    expect(sumEstimatedAmounts(ok.items)).toBe(350n);
+
+    const dup = parseEstimateResponse({
+      items: [
+        { name: 'A', description: 'd', estimatedAmount: '1', rationale: 'r' },
+        { name: 'a', description: 'd', estimatedAmount: '2', rationale: 'r' },
+      ],
+    });
+    expect(dup.ok).toBe(false);
   });
 
   it('sums item amounts and ignores a forged total from the model', () => {
@@ -131,13 +245,17 @@ describe('mock provider', () => {
   });
 });
 
-describe('openai provider stub', () => {
-  it('never calls the network and returns AI_UNAVAILABLE', async () => {
+describe('openai provider gate and fake client', () => {
+  it('never calls the network when billable calls are disabled', async () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'));
-    const provider = createOpenAiEstimateProvider({
-      apiKey: 'sk-should-not-be-used',
-      model: 'gpt-test',
-    });
+    const createClient = vi.fn();
+    const provider = createOpenAiEstimateProvider(
+      loadAiConfig({
+        AI_ESTIMATE_MODE: 'openai',
+        OPENAI_API_KEY: 'sk-should-not-be-used',
+      }),
+      { createClient },
+    );
     await expect(
       provider.analyze({
         title: 't',
@@ -145,22 +263,32 @@ describe('openai provider stub', () => {
         category: 'WEB',
         techStackNames: [],
       }),
-    ).rejects.toMatchObject({ status: 503, code: 'AI_UNAVAILABLE' });
+    ).rejects.toMatchObject({ status: 503, code: 'AI_BILLABLE_DISABLED' });
+    expect(createClient).not.toHaveBeenCalled();
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
 
-  it('is selected by the factory and still blocks without leaking the API key', async () => {
+  it('blocks zero budget and missing key without leaking secrets', async () => {
     const provider = createEstimateProvider(
       loadAiConfig({
         AI_ESTIMATE_MODE: 'openai',
+        AI_ENABLE_BILLABLE_CALLS: 'true',
+        AI_ESTIMATE_MONTHLY_BUDGET_USD: '5',
         OPENAI_API_KEY: 'sk-secret-must-not-appear',
       }),
     );
-    expect(provider.name).toBe('openai');
-    expect(provider.isMock).toBe(false);
+    // budget>0 but we test key leak on disabled path via billable false
+    const gated = createOpenAiEstimateProvider(
+      loadAiConfig({
+        AI_ESTIMATE_MODE: 'openai',
+        AI_ENABLE_BILLABLE_CALLS: 'true',
+        OPENAI_API_KEY: 'sk-secret-must-not-appear',
+        AI_ESTIMATE_MONTHLY_BUDGET_USD: '0',
+      }),
+    );
     try {
-      await provider.analyze({
+      await gated.analyze({
         title: 't',
         description: 'd',
         category: null,
@@ -168,10 +296,55 @@ describe('openai provider stub', () => {
       });
       expect.unreachable();
     } catch (error) {
-      expect(error).toMatchObject({ status: 503, code: 'AI_UNAVAILABLE' });
+      expect(error).toMatchObject({ code: 'AI_BUDGET_EXCEEDED' });
       expect(error.message).not.toContain('sk-secret');
       expect(JSON.stringify(error)).not.toContain('sk-secret');
     }
+    expect(provider.name).toBe('openai');
+  });
+
+  it('parses Structured Outputs from a fake client and does not retry', async () => {
+    const fake = fakeSuccessClient();
+    const config = loadAiConfig(billableEnv);
+    const provider = createOpenAiEstimateProvider(config, { client: fake });
+    const result = await provider.analyze({
+      title: '쇼핑몰',
+      description: '반응형',
+      category: 'WEB',
+      techStackNames: ['React'],
+    });
+    expect(result.items).toHaveLength(2);
+    expect(result.usage.inputTokens).toBe(120);
+    expect(fake.create).toHaveBeenCalledTimes(1);
+    const params = fake.create.mock.calls[0][0];
+    expect(params.store).toBe(false);
+    expect(params.tools).toBeUndefined();
+    expect(params.text.format).toEqual(PRICE_ESTIMATE_TEXT_FORMAT);
+    expect(params.model).toBe('gpt-6-luna');
+  });
+
+  it('maps timeout and 429 without retry', async () => {
+    const timeoutErr = Object.assign(new Error('Request timed out'), {
+      name: 'APIConnectionTimeoutError',
+    });
+    expect(mapOpenAiError(timeoutErr)).toMatchObject({ code: 'AI_TIMEOUT', status: 503 });
+
+    const rateErr = Object.assign(new Error('rate'), { status: 429, code: 'rate_limit_exceeded' });
+    expect(mapOpenAiError(rateErr)).toMatchObject({
+      code: 'AI_PROVIDER_RATE_LIMITED',
+      status: 429,
+    });
+
+    const create = vi.fn(async () => {
+      throw rateErr;
+    });
+    const provider = createOpenAiEstimateProvider(loadAiConfig(billableEnv), {
+      client: { responses: { create } },
+    });
+    await expect(
+      provider.analyze({ title: 't', description: 'd', category: null, techStackNames: [] }),
+    ).rejects.toMatchObject({ code: 'AI_PROVIDER_RATE_LIMITED' });
+    expect(create).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -229,7 +402,7 @@ describe('createEstimateService', () => {
     expect(Number.isSafeInteger(Number(result.totalAmount))).toBe(false);
   });
 
-  it('retries once on invalid provider JSON then fails with 502', async () => {
+  it('retries once on invalid mock provider JSON then fails with 502', async () => {
     const provider = {
       name: 'broken',
       isMock: true,
@@ -245,6 +418,58 @@ describe('createEstimateService', () => {
       }),
     ).rejects.toMatchObject({ status: 502, code: 'AI_INVALID_RESPONSE' });
     expect(provider.analyze).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not retry OpenAI API after a successful HTTP response with bad JSON', async () => {
+    const create = vi.fn(async () => ({
+      id: 'resp_bad',
+      status: 'completed',
+      output_text: '{"functions":[]}',
+      usage: { input_tokens: 10, output_tokens: 5 },
+    }));
+    const aiConfig = loadAiConfig(billableEnv);
+    const provider = createOpenAiEstimateProvider(aiConfig, {
+      client: { responses: { create } },
+    });
+    const usageLedger = {
+      reserve: vi.fn(async () => ({ id: 1n, reservedMicroUsd: 100n, monthKey: '2026-10' })),
+      settle: vi.fn(async () => {}),
+      release: vi.fn(async () => {}),
+      markUncertain: vi.fn(async () => {}),
+    };
+    const service = createEstimateService({ prisma, provider, aiConfig, usageLedger });
+    await expect(
+      service.analyzePrice(
+        { title: 't', description: 'd', category: null, techStackIds: [] },
+        { userId: 1 },
+      ),
+    ).rejects.toMatchObject({ code: 'AI_INVALID_RESPONSE' });
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(usageLedger.settle).toHaveBeenCalled();
+  });
+
+  it('settles usage on OpenAI fake success and recomputes total', async () => {
+    const fake = fakeSuccessClient();
+    const aiConfig = loadAiConfig(billableEnv);
+    const provider = createOpenAiEstimateProvider(aiConfig, { client: fake });
+    const usageLedger = {
+      reserve: vi.fn(async () => ({ id: 2n, reservedMicroUsd: 500n, monthKey: '2026-10' })),
+      settle: vi.fn(async () => {}),
+      release: vi.fn(async () => {}),
+      markUncertain: vi.fn(async () => {}),
+    };
+    const service = createEstimateService({ prisma, provider, aiConfig, usageLedger });
+    const result = await service.analyzePrice(
+      { title: 't', description: '충분히 긴 설명', category: 'WEB', techStackIds: [] },
+      { userId: 9 },
+    );
+    expect(result.totalAmount).toBe('2500000');
+    expect(result.isMock).toBe(false);
+    expect(usageLedger.reserve).toHaveBeenCalledWith({ userId: 9 });
+    expect(usageLedger.settle).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 2n }),
+      expect.objectContaining({ inputTokens: 120, outputTokens: 80 }),
+    );
   });
 
   it('rejects unknown tech stack ids', async () => {

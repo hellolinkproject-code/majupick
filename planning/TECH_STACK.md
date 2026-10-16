@@ -143,10 +143,10 @@ workbridge/
   3. 서버가 응답을 스키마로 검증한다(STEP 08-A: 수동 검증. zod는 쓰지 않음). 형식이 틀리면 1회 재시도 후 실패 응답을 준다.
   4. **총액은 서버가 항목 단가의 합으로 다시 계산한다.** LLM이 낸 합계를 그대로 믿지 않는다.
   5. '예산 반영'은 FE가 총액을 예산 입력값에 넣는 동작이다. 저장은 기존 등록·수정 API로 한다(B-03).
-- mock 모드: `AI_ESTIMATE_MODE=mock`이면 입력에 따라 항상 같은 결과를 돌려준다(개발·테스트·키 없는 시연 대비). STEP 08-A 기본값.
-- OpenAI 모드: `AI_ESTIMATE_MODE=openai` provider 골격만 두고, STEP 08-A에서는 외부 호출 없이 503을 낸다(STEP 08-B에서 연결).
-- 비용 보호: 사용자별 호출 제한(express-rate-limit), 요청 타임아웃(실제 OpenAI 연결 시).
-- 환경 변수: `AI_ESTIMATE_MODE`, `AI_ESTIMATE_RATE_LIMIT_MAX`, `AI_ESTIMATE_RATE_LIMIT_WINDOW_MINUTES`, `OPENAI_API_KEY`, `OPENAI_MODEL`
+- mock 모드: `AI_ESTIMATE_MODE=mock`이면 입력에 따라 항상 같은 결과를 돌려준다(개발·테스트·키 없는 시연 대비). 기본값.
+- OpenAI 모드(STEP 08-B-1): OpenAI SDK Responses API + Structured Outputs. 후보 모델 `gpt-6-luna`. `store:false`, `maxRetries:0`, 도구 미사용. **유료 호출은 `AI_ENABLE_BILLABLE_CALLS`·월간 예산·가격·키 게이트로 기본 차단.**
+- 비용 보호: 사용자/전역 rate-limit, DB 예산 예약(micro-USD), 동시 예약 한도, 타임아웃.
+- 환경 변수: `AI_ESTIMATE_MODE`, `AI_ENABLE_BILLABLE_CALLS`, `AI_ESTIMATE_MONTHLY_BUDGET_USD`, `AI_ESTIMATE_RATE_LIMIT_*`, `AI_ESTIMATE_GLOBAL_RATE_LIMIT_MAX`, `AI_ESTIMATE_MAX_CONCURRENT`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `AI_OPENAI_*`
 
 ### 4.3 PG sandbox 결제 (B-09~B-11)
 
@@ -190,7 +190,7 @@ workbridge/
 | api | `APP_ORIGIN` | CORS 허용 출처, OAuth 완료 후 이동할 FE 주소 |
 | api | `JWT_ACCESS_SECRET`, `JWT_ACCESS_EXPIRES_IN`, `REFRESH_TOKEN_EXPIRES_DAYS` | 토큰 |
 | api | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | OAuth |
-| api | `AI_ESTIMATE_MODE`, `AI_ESTIMATE_RATE_LIMIT_MAX`, `AI_ESTIMATE_RATE_LIMIT_WINDOW_MINUTES`, `OPENAI_API_KEY`, `OPENAI_MODEL` | AI 단가 분석 (D-115) |
+| api | `AI_ESTIMATE_MODE`, `AI_ENABLE_BILLABLE_CALLS`, `AI_ESTIMATE_MONTHLY_BUDGET_USD`, `AI_ESTIMATE_RATE_LIMIT_*`, `AI_ESTIMATE_GLOBAL_RATE_LIMIT_MAX`, `AI_ESTIMATE_MAX_CONCURRENT`, `OPENAI_API_KEY`, `OPENAI_MODEL`, `AI_OPENAI_*` | AI 단가 분석 (D-115, D-117) |
 | api | `TOSS_SECRET_KEY` | PG 승인(테스트 키만) |
 | api | `PLATFORM_FEE_RATE` | 수수료율(기본 10%) |
 | api | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `STORAGE_BUCKET` | 이미지 저장소 |

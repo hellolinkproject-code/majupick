@@ -77,6 +77,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   const runUsers = { email: { endsWith: `.${runId}@workbridge.test` } };
+  await prisma.aiUsageLedger.deleteMany({ where: { user: runUsers } });
   await prisma.refreshToken.deleteMany({ where: { user: runUsers } });
   await prisma.clientProfile.deleteMany({ where: { user: runUsers } });
   await prisma.freelancerProfile.deleteMany({ where: { user: runUsers } });
@@ -207,5 +208,129 @@ describe('AI-01 price analysis', () => {
     expect(res.body.data.totalAmount).toMatch(/^\d+$/);
     const sum = res.body.data.items.reduce((acc, item) => acc + BigInt(item.estimatedAmount), 0n);
     expect(res.body.data.totalAmount).toBe(sum.toString());
+  });
+});
+
+describe('AI-01 OpenAI gated path and usage ledger (no external HTTP)', () => {
+  it('rejects openai mode without billable flags even when a key is present', async () => {
+    const gatedConfig = loadAiConfig({
+      AI_ESTIMATE_MODE: 'openai',
+      AI_ENABLE_BILLABLE_CALLS: 'false',
+      AI_ESTIMATE_MONTHLY_BUDGET_USD: '0',
+      OPENAI_API_KEY: 'sk-must-not-call-network',
+      OPENAI_MODEL: 'gpt-6-luna',
+      AI_ESTIMATE_RATE_LIMIT_MAX: '20',
+    });
+    const gatedApp = createApp(config, { prisma, authConfig, aiConfig: gatedConfig });
+    const res = await request(gatedApp)
+      .post('/api/ai/price-analyses')
+      .set(bearer(users.client))
+      .send({ title: 't', description: '충분히 긴 설명입니다' });
+    expect(res.status).toBe(503);
+    expect(res.body.error.code).toBe('AI_BILLABLE_DISABLED');
+    expect(JSON.stringify(res.body)).not.toMatch(/sk-must-not/);
+  });
+
+  it('reserves, settles, and races budget atomically with a fake OpenAI client', async () => {
+    const { createOpenAiEstimateProvider } =
+      await import('../../src/modules/ai/providers/openaiProvider.js');
+    const { ESTIMATE_DISCLAIMER } = await import('../../src/modules/ai/openaiPrompt.js');
+    const { utcMonthKey } = await import('../../src/modules/ai/usageLedger.js');
+
+    // 이전 실행의 월 예산 잔여가 끼지 않도록 이번 테스트 전용으로 월 원장을 비운다.
+    const monthKey = utcMonthKey();
+    await prisma.aiUsageLedger.deleteMany({ where: { monthKey } });
+    await prisma.aiBudgetMonth.deleteMany({ where: { monthKey } });
+
+    const billableConfig = loadAiConfig({
+      AI_ESTIMATE_MODE: 'openai',
+      AI_ENABLE_BILLABLE_CALLS: 'true',
+      AI_ESTIMATE_MONTHLY_BUDGET_USD: '0.0005',
+      OPENAI_API_KEY: 'sk-fake-ledger-test',
+      OPENAI_MODEL: 'gpt-6-luna',
+      AI_ESTIMATE_MAX_CONCURRENT: '4',
+      AI_ESTIMATE_RATE_LIMIT_MAX: '50',
+      AI_OPENAI_RESERVE_INPUT_TOKENS: '1000',
+      AI_OPENAI_MAX_OUTPUT_TOKENS: '256',
+    });
+
+    const create = async () => ({
+      id: `resp_${randomUUID()}`,
+      status: 'completed',
+      output_text: JSON.stringify({
+        functions: [
+          {
+            name: '기능A',
+            description: '설명A',
+            estimatedAmount: '500000',
+            rationale: '근거A',
+          },
+          {
+            name: '기능B',
+            description: '설명B',
+            estimatedAmount: '700000',
+            rationale: '근거B',
+          },
+        ],
+        assumptions: [ESTIMATE_DISCLAIMER],
+        summary: ESTIMATE_DISCLAIMER,
+      }),
+      usage: { input_tokens: 50, output_tokens: 40 },
+    });
+
+    const provider = createOpenAiEstimateProvider(billableConfig, {
+      client: { responses: { create } },
+    });
+    const billableApp = createApp(config, {
+      prisma,
+      authConfig,
+      aiConfig: billableConfig,
+      estimateProvider: provider,
+    });
+
+    const budgetUser = await signup('budget', 'CLIENT');
+    await request(billableApp)
+      .put('/api/users/me/client-profile')
+      .set(bearer(budgetUser))
+      .send({ companyName: '예산', businessField: 'IT' });
+
+    const body = {
+      title: `예산 예약 ${runId}`,
+      description: '가짜 클라이언트로 예약을 검증합니다',
+      category: 'WEB',
+    };
+
+    const first = await request(billableApp)
+      .post('/api/ai/price-analyses')
+      .set(bearer(budgetUser))
+      .send(body);
+    expect(first.status).toBe(200);
+    expect(first.body.data.isMock).toBe(false);
+    expect(first.body.data.totalAmount).toBe('1200000');
+
+    const ledgers = await prisma.aiUsageLedger.findMany({
+      where: { userId: budgetUser.id, monthKey },
+    });
+    expect(ledgers.some((row) => row.status === 'SETTLED')).toBe(true);
+    expect(
+      ledgers.every(
+        (row) => row.providerRequestId == null || !row.providerRequestId.includes('sk-'),
+      ),
+    ).toBe(true);
+
+    // 동시 예약 경합: 남은 예산이 작아 일부만 성공해야 한다.
+    const racers = await Promise.all(
+      Array.from({ length: 8 }, () =>
+        request(billableApp).post('/api/ai/price-analyses').set(bearer(budgetUser)).send(body),
+      ),
+    );
+    const ok = racers.filter((res) => res.status === 200);
+    const blocked = racers.filter((res) => res.status === 429);
+    expect(ok.length + blocked.length).toBe(8);
+    expect(blocked.length).toBeGreaterThan(0);
+    expect(blocked.every((res) => res.body.error.code === 'AI_BUDGET_EXCEEDED')).toBe(true);
+    for (const res of racers) {
+      expect(JSON.stringify(res.body)).not.toMatch(/sk-fake|OPENAI_API_KEY/i);
+    }
   });
 });

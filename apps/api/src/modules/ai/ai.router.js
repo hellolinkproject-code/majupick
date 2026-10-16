@@ -5,6 +5,7 @@ import { createRequireRole } from '../../middlewares/requireRole.js';
 import { HttpError } from '../../utils/httpError.js';
 import { createEstimateService } from './estimate.service.js';
 import { validatePriceAnalysisRequest } from './estimate.validation.js';
+import { createUsageLedger } from './usageLedger.js';
 
 function onlyClient(req, _res, next) {
   if (req.auth.role === 'CLIENT') next();
@@ -19,15 +20,32 @@ export function createAiRouter({ prisma, authConfig, aiConfig, provider }) {
   const router = Router();
   const authenticate = createAuthenticate(authConfig);
   const requireRole = createRequireRole(prisma);
-  const service = createEstimateService({ prisma, provider });
+  const usageLedger = aiConfig.mode === 'openai' ? createUsageLedger({ prisma, aiConfig }) : null;
+  const service = createEstimateService({ prisma, provider, aiConfig, usageLedger });
 
   const estimateLimiter = rateLimit({
     windowMs: aiConfig.rateLimit.windowMs,
     limit: aiConfig.rateLimit.max,
     standardHeaders: 'draft-8',
     legacyHeaders: false,
-    // 사용자 ID 기준 제한이라 IP 키 생성기를 쓰지 않는다(IPv6 검증 비활성).
     keyGenerator: (req) => `ai-estimate:${req.auth.userId}`,
+    validate: { keyGeneratorIpFallback: false },
+    handler: (_req, _res, next) =>
+      next(
+        new HttpError(
+          429,
+          'RATE_LIMITED',
+          'AI 단가 분석 요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.',
+        ),
+      ),
+  });
+
+  const globalLimiter = rateLimit({
+    windowMs: aiConfig.rateLimit.windowMs,
+    limit: aiConfig.rateLimit.globalMax,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    keyGenerator: () => 'ai-estimate:global',
     validate: { keyGeneratorIpFallback: false },
     handler: (_req, _res, next) =>
       next(
@@ -50,9 +68,10 @@ export function createAiRouter({ prisma, authConfig, aiConfig, provider }) {
     requireRole,
     onlyClient,
     estimateLimiter,
+    globalLimiter,
     async (req, res) => {
       const input = validatePriceAnalysisRequest(req.body);
-      const data = await service.analyzePrice(input);
+      const data = await service.analyzePrice(input, { userId: req.auth.userId });
       res.status(200).json({ data });
     },
   );

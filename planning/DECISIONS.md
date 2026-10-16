@@ -304,11 +304,24 @@ AI 단가 분석 기초(B-01~B-03, AI-01). D-27·D-28은 **상태를 바꾸지 �
 
 | ID | 주제 | RFP | 추천안 / 결정 | 대안 | 확정 시점 | 상태 |
 |---|---|---|---|---|---|---|
-| D-115 | AI 모드 환경 변수·provider | 구조화 JSON(§5), D-27 | **`AI_ESTIMATE_MODE=mock\|openai`(기본 mock).** TECH_STACK 초안의 `LLM_PROVIDER` 대신 이 이름을 쓴다. mock은 결정적 로컬 산정. openai는 STEP 08-A에서 stub(503, 외부 HTTP·SDK 호출 없음). 키(`OPENAI_API_KEY`)는 설정에만 두고 로그·응답에 넣지 않는다. 응답 검증은 zod 없이 수동 스키마 | `LLM_PROVIDER` 이름 유지, 지금 실제 OpenAI 연결 | STEP 08-A | 제안 (구현) |
-| D-116 | AI 호출 제한 | D-27 사용자당 제한 | **사용자당 20회/60분**(메모리 `express-rate-limit`, `AI_ESTIMATE_RATE_LIMIT_MAX`·`WINDOW_MINUTES`). 초과 429 `RATE_LIMITED`. 서버 1대 기준(다중 인스턴스는 공유 저장소 필요) | 일일 DB 카운트, IP만 제한 | STEP 08-A | 제안 (구현) |
+| D-115 | AI 모드 환경 변수·provider | 구조화 JSON(§5), D-27 | **`AI_ESTIMATE_MODE=mock\|openai`(기본 mock).** TECH_STACK 초안의 `LLM_PROVIDER` 대신 이 이름을 쓴다. mock은 결정적 로컬 산정. openai는 STEP 08-B-1에서 Responses API·Structured Outputs 코드를 두되, 유료 호출은 D-117 게이트로 막는다. 키(`OPENAI_API_KEY`)는 설정에만 두고 로그·응답에 넣지 않는다. 응답 검증은 zod 없이 수동 스키마 | `LLM_PROVIDER` 이름 유지 | STEP 08-A / 08-B-1 | 제안 (구현) |
+| D-116 | AI 호출 제한 | D-27 사용자당 제한 | **사용자당 20회/60분**(메모리 `express-rate-limit`) + **전역 한도**(`AI_ESTIMATE_GLOBAL_RATE_LIMIT_MAX`, 기본 60) + **동시 예약**(`AI_ESTIMATE_MAX_CONCURRENT`, DB). 초과 429 | IP만 제한 | STEP 08-A / 08-B-1 | 제안 (구현) |
+
+### 2.21 STEP 08-B-1에서 추가된 항목
+
+OpenAI 연동 코드·비용 보호(B-01). **실제 과금 HTTP는 기본 차단·미검증.** 아래도 **제안**.
+
+| ID | 주제 | RFP | 추천안 / 결정 | 대안 | 확정 시점 | 상태 |
+|---|---|---|---|---|---|---|
+| D-117 | 유료 호출 게이트·예산 | D-27 비용 보호 | **6조건 모두 충족 시에만** OpenAI 호출: `mode=openai`, `AI_ENABLE_BILLABLE_CALLS=true`, 서버 키, 모델·가격, 월간 예산>0, 사용량 원장 정상. 기본값은 mock·billable false·예산 0. 비용은 **micro-USD** bigint. `ai_budget_months` FOR UPDATE 예약 + `ai_usage_ledger` 정산. 타임아웃 등 불확실 실패는 예약 환불 금지(`FAILED_CHARGED`). 모델 후보 `gpt-6-luna`, `store:false`, `maxRetries:0`, 도구 미사용 | Redis만으로 예산, 호출마다 실측 없이 고정 차감 | STEP 08-B-1 | 제안 (구현) |
+
+**한계(문서화)**
+- 월간 예산·동시성은 PostgreSQL로 다중 인스턴스에 안전하나, 사용자당 RPM은 여전히 프로세스 메모리 rate-limit(인스턴스별).
+- 실제 OpenAI 과금·모델 접근·소액 검증은 STEP 08-B-2(사용자 승인 후).
+- 견적 결과 본문은 저장하지 않는다(D-27). 사용량·비용 메타만 저장.
 
 **아직 하지 않은 것 (완료를 주장하지 않음)**
-- 실제 OpenAI API 연결·프롬프트·타임아웃(STEP 08-B).
+- 실제 OpenAI 키로 소액 호출·응답 품질 검증(STEP 08-B-2).
 - 분석 결과 DB 저장(D-27 비권장).
 
 ---

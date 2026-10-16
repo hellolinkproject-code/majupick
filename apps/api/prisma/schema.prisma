@@ -140,6 +140,7 @@ model User {
   createdTechStacks TechStack[]
   notifications     Notification[]
   bookmarks         Bookmark[]
+  aiUsageLedgers    AiUsageLedger[]
 
   @@map("users")
 }
@@ -404,4 +405,54 @@ model Bookmark {
   @@index([userId, createdAt(sort: Desc), projectId(sort: Desc)])
   @@index([projectId])
   @@map("bookmarks")
+}
+
+// ---------------------------------------------------------------------------
+// AI 사용량·월간 예산 예약 (STEP 08-B-1). 견적 결과 본문은 저장하지 않는다(D-27).
+// 금액은 micro-USD(1 USD = 1_000_000) bigint로 보관한다(D-117).
+// ---------------------------------------------------------------------------
+
+enum AiUsageStatus {
+  RESERVED
+  SETTLED
+  /// 타임아웃 등 과금 불확실 — 예약을 환불하지 않음
+  FAILED_CHARGED
+  /// 호출 전·과금 없음이 확실한 실패 — 예약 환불
+  RELEASED
+
+  @@map("ai_usage_status")
+}
+
+/// 월(UTC YYYY-MM)별 약정(예약+확정+불확실) 합. FOR UPDATE로 동시 예약을 직렬화한다.
+model AiBudgetMonth {
+  monthKey          String   @id @map("month_key") @db.Char(7)
+  committedMicroUsd BigInt   @default(0) @map("committed_micro_usd")
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("ai_budget_months")
+}
+
+model AiUsageLedger {
+  id                BigInt        @id @default(autoincrement())
+  userId            Int           @map("user_id")
+  monthKey          String        @map("month_key") @db.Char(7)
+  status            AiUsageStatus
+  provider          String        @db.VarChar(32)
+  model             String        @db.VarChar(64)
+  reservedMicroUsd  BigInt        @map("reserved_micro_usd")
+  settledMicroUsd   BigInt?       @map("settled_micro_usd")
+  inputTokens       Int?          @map("input_tokens")
+  outputTokens      Int?          @map("output_tokens")
+  providerRequestId String?       @map("provider_request_id") @db.VarChar(128)
+  errorCode         String?       @map("error_code") @db.VarChar(64)
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+  settledAt         DateTime?     @map("settled_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([monthKey, status])
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status], map: "ai_usage_ledger_reserved_idx", where: raw("status = 'RESERVED'"))
+  @@map("ai_usage_ledger")
 }
