@@ -19,6 +19,11 @@ const REFRESH_LOCK = 'workbridge-auth-refresh';
 
 let refreshPromise = null;
 
+/** 테스트 간 공유되는 재발급 Promise를 비운다. 프로덕션 코드에서는 호출하지 않는다. */
+export function resetRefreshStateForTests() {
+  refreshPromise = null;
+}
+
 function requestRefresh() {
   const run = async () => {
     // 본문은 undefined로 보낸다. null이면 axios가 JSON "null"을 보내 서버 JSON 파서가 400으로 거부한다.

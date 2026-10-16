@@ -143,4 +143,69 @@ describe('AI-01 price analysis', () => {
     expect(blocked.status).toBe(429);
     expect(blocked.body.error.code).toBe('RATE_LIMITED');
   });
+
+  it('does not let concurrent bursts bypass the per-user rate limit', async () => {
+    const body = {
+      title: `동시 한도 ${runId}`,
+      description: '동시 요청으로 한도를 넘기려는 시도',
+      category: 'ETC',
+    };
+    const burstUser = await signup('burst', 'CLIENT');
+    await request(app)
+      .put('/api/users/me/client-profile')
+      .set(bearer(burstUser))
+      .send({ companyName: '동시한도', businessField: 'IT' });
+
+    const results = await Promise.all(Array.from({ length: 6 }, () => analyze(burstUser, body)));
+    const ok = results.filter((res) => res.status === 200);
+    const limited = results.filter((res) => res.status === 429);
+    expect(ok.length).toBe(3);
+    expect(limited.length).toBe(3);
+    expect(limited.every((res) => res.body.error.code === 'RATE_LIMITED')).toBe(true);
+    for (const res of results) {
+      const text = JSON.stringify(res.body);
+      expect(text).not.toMatch(/sk-|OPENAI_API_KEY|password|secret/i);
+    }
+  });
+
+  it('applies the same per-user limit across IPv4 and IPv6 client addresses', async () => {
+    // Rate limit key is userId (not IP). Spoofed/varying IPv4·IPv6 must not open extra buckets.
+    const body = {
+      title: `IP 한도 ${runId}`,
+      description: 'IPv4·IPv6 주소가 달라도 동일 사용자 한도를 공유해야 한다',
+      category: 'ETC',
+    };
+    const ipUser = await signup('ipuser', 'CLIENT');
+    await request(app)
+      .put('/api/users/me/client-profile')
+      .set(bearer(ipUser))
+      .send({ companyName: 'IP한도', businessField: 'IT' });
+
+    const withIp = (ip) =>
+      request(app)
+        .post('/api/ai/price-analyses')
+        .set(bearer(ipUser))
+        .set('X-Forwarded-For', ip)
+        .send(body);
+
+    expect((await withIp('203.0.113.10')).status).toBe(200);
+    expect((await withIp('2001:db8::1')).status).toBe(200);
+    expect((await withIp('203.0.113.11')).status).toBe(200);
+    const blocked = await withIp('2001:db8::2');
+    expect(blocked.status).toBe(429);
+    expect(blocked.body.error.code).toBe('RATE_LIMITED');
+  });
+
+  it('returns totalAmount as a decimal string equal to the BigInt sum of items', async () => {
+    const res = await analyze(users.client, {
+      title: '정밀도 검증',
+      description: '복잡도 보정이 적용되도록 설명을 충분히 길게 작성합니다. '.repeat(20),
+      category: 'WEB',
+      techStackIds: [stack.id],
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.data.totalAmount).toMatch(/^\d+$/);
+    const sum = res.body.data.items.reduce((acc, item) => acc + BigInt(item.estimatedAmount), 0n);
+    expect(res.body.data.totalAmount).toBe(sum.toString());
+  });
 });

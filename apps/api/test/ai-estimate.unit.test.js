@@ -149,6 +149,30 @@ describe('openai provider stub', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
+
+  it('is selected by the factory and still blocks without leaking the API key', async () => {
+    const provider = createEstimateProvider(
+      loadAiConfig({
+        AI_ESTIMATE_MODE: 'openai',
+        OPENAI_API_KEY: 'sk-secret-must-not-appear',
+      }),
+    );
+    expect(provider.name).toBe('openai');
+    expect(provider.isMock).toBe(false);
+    try {
+      await provider.analyze({
+        title: 't',
+        description: 'd',
+        category: null,
+        techStackNames: [],
+      });
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toMatchObject({ status: 503, code: 'AI_UNAVAILABLE' });
+      expect(error.message).not.toContain('sk-secret');
+      expect(JSON.stringify(error)).not.toContain('sk-secret');
+    }
+  });
 });
 
 describe('createEstimateService', () => {
@@ -169,6 +193,40 @@ describe('createEstimateService', () => {
     const sum = result.items.reduce((acc, item) => acc + BigInt(item.estimatedAmount), 0n);
     expect(result.totalAmount).toBe(sum.toString());
     expect(result.isMock).toBe(true);
+  });
+
+  it('keeps totals exact for amounts beyond Number.MAX_SAFE_INTEGER', async () => {
+    const huge = 9_007_199_254_740_993n;
+    const provider = {
+      name: 'huge-mock',
+      isMock: true,
+      analyze: async () => ({
+        items: [
+          {
+            name: 'A',
+            description: 'desc',
+            estimatedAmount: huge,
+            rationale: 'big',
+          },
+          {
+            name: 'B',
+            description: 'desc',
+            estimatedAmount: 7n,
+            rationale: 'small',
+          },
+        ],
+        assumptions: [],
+      }),
+    };
+    const service = createEstimateService({ prisma, provider });
+    const result = await service.analyzePrice({
+      title: 't',
+      description: 'd',
+      category: null,
+      techStackIds: [],
+    });
+    expect(result.totalAmount).toBe((huge + 7n).toString());
+    expect(Number.isSafeInteger(Number(result.totalAmount))).toBe(false);
   });
 
   it('retries once on invalid provider JSON then fails with 502', async () => {

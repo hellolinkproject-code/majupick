@@ -108,7 +108,11 @@ export function ProjectDetailPage() {
     window.scrollTo(0, 0);
   }, [projectId]);
 
-  if (project.isPending) return <p className="page-status">프로젝트를 불러오는 중…</p>;
+  // RQ v5: enabled=false여도 isPending은 true라 세션 대기와 혼동된다.
+  // 세션 복원 전·실제 요청 중·아직 data 없음은 로딩, 그다음에 오류를 본다.
+  if (!sessionSettled || project.isLoading || (!project.data && !project.isError)) {
+    return <p className="page-status">프로젝트를 불러오는 중…</p>;
+  }
   if (project.isError) {
     const error = parseApiError(project.error);
     return (

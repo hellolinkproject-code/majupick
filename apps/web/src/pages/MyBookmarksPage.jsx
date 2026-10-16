@@ -137,7 +137,7 @@ export function MyBookmarksPage() {
   }
 
   let body;
-  if (list.isPending) {
+  if (list.isLoading || (!list.data && !list.isError)) {
     body = <p className="page-status">내 북마크를 불러오는 중…</p>;
   } else if (list.isError) {
     body = (

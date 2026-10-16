@@ -36,7 +36,9 @@ export function PublicProfilePage() {
   });
 
   if (!valid) return <NotFound />;
-  if (profile.isPending) return <p className="page-status">프로필을 불러오는 중…</p>;
+  if (profile.isLoading || (!profile.data && !profile.isError)) {
+    return <p className="page-status">프로필을 불러오는 중…</p>;
+  }
   if (profile.isError) {
     const error = parseApiError(profile.error);
     if (error.code === 'NOT_FOUND') return <NotFound />;

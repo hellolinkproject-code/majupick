@@ -21,6 +21,7 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       // Parallel jsdom workers can exceed Vitest's worker start timeout on slower machines.
       fileParallelism: false,
+      setupFiles: ['./src/test/setupTests.js'],
     },
   };
 });

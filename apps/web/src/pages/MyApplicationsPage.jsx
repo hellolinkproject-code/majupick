@@ -105,7 +105,7 @@ export function MyApplicationsPage() {
   }
 
   let body;
-  if (list.isPending) {
+  if (list.isLoading || (!list.data && !list.isError)) {
     body = <p className="page-status">내 지원 현황을 불러오는 중…</p>;
   } else if (list.isError) {
     body = (

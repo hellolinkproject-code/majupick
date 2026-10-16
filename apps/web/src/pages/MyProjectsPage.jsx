@@ -40,7 +40,8 @@ export function MyProjectsPage() {
   }
 
   let body;
-  if (list.isPending) {
+  // RQ v5: enabled=false여도 isPending은 true다. 요청 중이거나 아직 data가 없을 때만 로딩.
+  if (list.isLoading || (!list.data && !list.isError)) {
     body = <p className="page-status">내 프로젝트를 불러오는 중…</p>;
   } else if (list.isError) {
     body = (

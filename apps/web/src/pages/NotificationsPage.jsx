@@ -68,7 +68,7 @@ export function NotificationsPage() {
   }
 
   let body;
-  if (list.isPending) {
+  if (list.isLoading || (!list.data && !list.isError)) {
     body = <p className="page-status">알림을 불러오는 중…</p>;
   } else if (list.isError) {
     body = (
