@@ -47,6 +47,21 @@ export const CONTRACT_STATUS_LABELS = Object.freeze({
   CANCELLED: '취소됨',
 });
 
+/** CTR-04 displayStatus 안내 문구. 결제·작업 시작으로 오인하지 않게 한다. */
+export const CONTRACT_DISPLAY_STATUS_LABELS = Object.freeze({
+  SIGNATURE_PENDING: '양측 전자서명 대기',
+  WAITING_FREELANCER_SIGNATURE: '상대방(프리랜서) 서명 대기',
+  WAITING_CLIENT_SIGNATURE: '상대방(의뢰인) 서명 대기',
+  PAYMENT_PENDING: '계약 체결 완료(결제 대기)',
+  IN_PROGRESS: '작업 중',
+  DELIVERY_REQUESTED: '납품 요청',
+  COMPLETED: '완료',
+  CANCELLED: '취소됨',
+});
+
+export const SIGNATURE_CONSENT_LABEL =
+  '계약서 내용을 확인했으며, 위 계약 조건에 동의하고 전자서명합니다.';
+
 export const emptyApplicationForm = () => ({
   coverLetter: '',
   proposedAmount: '',

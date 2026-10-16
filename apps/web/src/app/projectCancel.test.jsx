@@ -314,7 +314,7 @@ describe('role-based header (A-42)', () => {
   it('shows the client menu', async () => {
     renderAt('/nowhere', client);
     expect(await screen.findByText('김의뢰님')).toBeTruthy();
-    expect(linkNames(menu())).toEqual(['프로젝트 찾기', '프로젝트 등록', '내 프로젝트']);
+    expect(linkNames(menu())).toEqual(['프로젝트 찾기', '프로젝트 등록', '내 프로젝트', '내 계약']);
     expect(linkNames(account())).toEqual(['내 프로필']);
     expect(account().getByRole('button', { name: '로그아웃' })).toBeTruthy();
     expect(screen.getByRole('link', { name: '알림' })).toBeTruthy();
@@ -323,7 +323,7 @@ describe('role-based header (A-42)', () => {
   it('shows the freelancer menu', async () => {
     renderAt('/nowhere', freelancer);
     expect(await screen.findByText('박프리님')).toBeTruthy();
-    expect(linkNames(menu())).toEqual(['프로젝트 찾기', '내 지원 현황', '내 북마크']);
+    expect(linkNames(menu())).toEqual(['프로젝트 찾기', '내 지원 현황', '내 계약', '내 북마크']);
     expect(linkNames(account())).toEqual(['내 프로필']);
     expect(screen.getByRole('link', { name: '알림' })).toBeTruthy();
   });

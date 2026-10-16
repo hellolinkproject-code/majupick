@@ -62,3 +62,20 @@ export async function fetchContract(contractId) {
   const res = await apiClient.get(`/contracts/${contractId}`);
   return res.data.data;
 }
+
+/** CTR-03 내 계약 목록. */
+export async function fetchMyContracts(page = 1, status = null) {
+  const res = await apiClient.get('/me/contracts', {
+    params: { page, ...(status ? { status } : {}) },
+  });
+  return res.data;
+}
+
+/**
+ * CTR-05 체크박스 전자서명. `{ agreed: true }`만 보낸다.
+ * 서명 시각·사용자 ID는 클라이언트가 지정하지 않는다.
+ */
+export async function signContract(contractId) {
+  const res = await apiClient.post(`/contracts/${contractId}/sign`, { agreed: true });
+  return res.data.data;
+}

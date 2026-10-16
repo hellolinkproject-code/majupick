@@ -409,7 +409,7 @@ model Contract {
   status               ContractStatus @default(SIGNATURE_PENDING)
   clientSignedAt       DateTime?      @map("client_signed_at") @db.Timestamptz(3)
   freelancerSignedAt   DateTime?      @map("freelancer_signed_at") @db.Timestamptz(3)
-  /// 양측 서명 완료 = 계약 체결(D-13). STEP 09-A에서는 항상 NULL.
+  /// 양측 서명 완료 = 계약 체결(D-13). 결제·IN_PROGRESS와는 분리한다.
   signedAt             DateTime?      @map("signed_at") @db.Timestamptz(3)
   workStartedAt        DateTime?      @map("work_started_at") @db.Timestamptz(3)
   deliveryNote         String?        @map("delivery_note")

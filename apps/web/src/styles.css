@@ -955,6 +955,33 @@ a {
   border-radius: 0.5rem;
 }
 
+.contract-preview__sign {
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e2e8f0;
+}
+
+.contract-preview__sign h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.1rem;
+}
+
+.form-field--checkbox {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.form-field--checkbox input {
+  margin-top: 0.2rem;
+  flex-shrink: 0;
+}
+
+.form-field--checkbox span {
+  line-height: 1.45;
+}
+
 .confirm-box.confirm-box--accept {
   background: #eff6ff;
   border-color: #bfdbfe;

@@ -119,7 +119,7 @@ function ApplicationItem({ application, busy, onRespond }) {
       )}
       {application.contractId && (
         <p className="project-list__meta">
-          <Link to={`/contracts/${application.contractId}`}>계약서 미리보기</Link>
+          <Link to={`/contracts/${application.contractId}`}>계약서 보기</Link>
         </p>
       )}
       <details className="application-item__letter">

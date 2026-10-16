@@ -1,16 +1,73 @@
 import { HttpError } from '../../utils/httpError.js';
+import { pagination } from '../projects/project.service.js';
 import { fromDbDate, todayKst } from '../projects/projectStatus.js';
-import { parseOfferAmountBody } from './contract.validation.js';
+import {
+  CONTRACT_LIST_PAGE_SIZE,
+  parseOfferAmountBody,
+  parseSignBody,
+} from './contract.validation.js';
 import { buildContractTerms, buildPartiesSnapshot } from './contractTerms.js';
 
 const notFoundApp = () => new HttpError(404, 'NOT_FOUND', '지원 내역을 찾을 수 없습니다.');
 const notFoundContract = () => new HttpError(404, 'NOT_FOUND', '계약서를 찾을 수 없습니다.');
 const invalid = (message, details) =>
   new HttpError(409, 'INVALID_STATE_TRANSITION', message, details);
+const alreadySigned = () => new HttpError(409, 'ALREADY_SIGNED', '이미 전자서명한 계약입니다.');
 
-/** API 응답용 계약 DTO. 금액은 문자열(D-51). 서명 전에는 signedAt null·isFullySigned false. */
-export function toContractDto(contract) {
+/** 화면·목록용 표시 상태. SIGNED는 결제 대기이며 작업 중이 아니다(D-13). */
+export function toDisplayStatus(contract) {
+  switch (contract.status) {
+    case 'CANCELLED':
+      return 'CANCELLED';
+    case 'SIGNED':
+      return 'PAYMENT_PENDING';
+    case 'IN_PROGRESS':
+      return 'IN_PROGRESS';
+    case 'DELIVERY_REQUESTED':
+      return 'DELIVERY_REQUESTED';
+    case 'COMPLETED':
+      return 'COMPLETED';
+    case 'SIGNATURE_PENDING':
+      if (contract.clientSignedAt && !contract.freelancerSignedAt) {
+        return 'WAITING_FREELANCER_SIGNATURE';
+      }
+      if (!contract.clientSignedAt && contract.freelancerSignedAt) {
+        return 'WAITING_CLIENT_SIGNATURE';
+      }
+      return 'SIGNATURE_PENDING';
+    default:
+      return contract.status;
+  }
+}
+
+/**
+ * @param {object} contract
+ * @param {number} viewerId
+ * @param {{ projectStatus?: string, projectDeletedAt?: Date | null }} [context]
+ */
+export function toAvailableActions(contract, viewerId, context = {}) {
+  if (contract.status !== 'SIGNATURE_PENDING') return [];
+  if (context.projectStatus === 'CANCELLED' || context.projectDeletedAt) return [];
+  const isClient = contract.clientId === viewerId;
+  const isFreelancer = contract.freelancerId === viewerId;
+  if (isClient && !contract.clientSignedAt) return ['SIGN'];
+  if (isFreelancer && !contract.freelancerSignedAt) return ['SIGN'];
+  return [];
+}
+
+/** API 응답용 계약 DTO. 금액은 문자열(D-51). 서명 시각·사용자 ID는 서버만 기록한다. */
+export function toContractDto(contract, viewerId = null, context = {}) {
   const snapshot = contract.partiesSnapshot ?? {};
+  const isParty =
+    viewerId != null && (contract.clientId === viewerId || contract.freelancerId === viewerId);
+  const viewerRole =
+    viewerId == null
+      ? null
+      : contract.clientId === viewerId
+        ? 'CLIENT'
+        : contract.freelancerId === viewerId
+          ? 'FREELANCER'
+          : null;
   return {
     id: contract.id,
     projectId: contract.projectId,
@@ -23,6 +80,7 @@ export function toContractDto(contract) {
     terms: contract.terms,
     partiesSnapshot: snapshot,
     status: contract.status,
+    displayStatus: toDisplayStatus(contract),
     clientSignedAt: contract.clientSignedAt,
     freelancerSignedAt: contract.freelancerSignedAt,
     signedAt: contract.signedAt,
@@ -30,11 +88,41 @@ export function toContractDto(contract) {
     cancelledAt: contract.cancelledAt,
     createdAt: contract.createdAt,
     updatedAt: contract.updatedAt,
+    ...(isParty && {
+      viewerRole,
+      availableActions: toAvailableActions(contract, viewerId, context),
+    }),
   };
 }
 
+/** CTR-03 목록 요약. 본문(terms)은 넣지 않는다. */
+export function toContractSummary(contract, viewerId) {
+  const dto = toContractDto(contract, viewerId);
+  const { terms: _terms, partiesSnapshot, ...rest } = dto;
+  return {
+    ...rest,
+    clientName: partiesSnapshot?.client?.name ?? null,
+    freelancerName: partiesSnapshot?.freelancer?.name ?? null,
+  };
+}
+
+function assertSignableSnapshot(contract) {
+  if (contract.agreedAmount == null || contract.agreedAmount <= 0n) {
+    throw invalid('합의 금액이 유효하지 않아 전자서명할 수 없습니다.');
+  }
+  if (!contract.terms || typeof contract.terms !== 'string' || !contract.terms.trim()) {
+    throw invalid('계약서 본문이 없어 전자서명할 수 없습니다.');
+  }
+  if (!contract.partiesSnapshot || typeof contract.partiesSnapshot !== 'object') {
+    throw invalid('계약서 스냅샷이 없어 전자서명할 수 없습니다.');
+  }
+  if (!contract.durationDays || contract.durationDays <= 0) {
+    throw invalid('계약 기간이 유효하지 않아 전자서명할 수 없습니다.');
+  }
+}
+
 /**
- * OFFER-01 / CTR-01 / CTR-02 / CTR-04.
+ * OFFER-01 / CTR-01 / CTR-02 / CTR-03 / CTR-04 / CTR-05.
  * 선정(DEC-01)과 금액 제안은 분리한다(D-118). 동의와 계약 생성은 한 트랜잭션(B-06).
  */
 export function createContractService({ prisma, clock = () => new Date() }) {
@@ -48,6 +136,22 @@ export function createContractService({ prisma, clock = () => new Date() }) {
     const project = await tx.project.findUnique({ where: { id: target.projectId } });
     if (!project || project.deletedAt) throw notFoundApp();
     return project;
+  }
+
+  /** 프로젝트 → 계약 순으로 잠가 취소·서명 동시성을 맞춘다. */
+  async function lockProjectAndContract(tx, contractId) {
+    const head = await tx.contract.findUnique({
+      where: { id: contractId },
+      select: { id: true, projectId: true },
+    });
+    if (!head) throw notFoundContract();
+    await tx.$queryRaw`SELECT id FROM projects WHERE id = ${head.projectId} FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM contracts WHERE id = ${contractId} FOR UPDATE`;
+    const project = await tx.project.findUnique({ where: { id: head.projectId } });
+    if (!project || project.deletedAt) throw notFoundContract();
+    const contract = await tx.contract.findUnique({ where: { id: contractId } });
+    if (!contract) throw notFoundContract();
+    return { project, contract };
   }
 
   /**
@@ -232,7 +336,10 @@ export function createContractService({ prisma, clock = () => new Date() }) {
         });
 
         // 프로젝트는 CONTRACTING 유지. 결제·서명 전에는 IN_PROGRESS로 올리지 않는다.
-        return toContractDto(contract);
+        return toContractDto(contract, freelancerId, {
+          projectStatus: project.status,
+          projectDeletedAt: project.deletedAt,
+        });
       });
     } catch (error) {
       if (error?.code === 'P2002') {
@@ -325,13 +432,143 @@ export function createContractService({ prisma, clock = () => new Date() }) {
 
   /** CTR-04 계약서 조회. 당사자만. */
   async function getContractForViewer(userId, contractId) {
-    const contract = await prisma.contract.findUnique({ where: { id: contractId } });
+    const contract = await prisma.contract.findUnique({
+      where: { id: contractId },
+      include: { project: { select: { status: true, deletedAt: true } } },
+    });
     if (!contract) throw notFoundContract();
     if (contract.clientId !== userId && contract.freelancerId !== userId) {
       throw notFoundContract();
     }
-    return toContractDto(contract);
+    return toContractDto(contract, userId, {
+      projectStatus: contract.project.status,
+      projectDeletedAt: contract.project.deletedAt,
+    });
   }
 
-  return { proposeOffer, agreeOffer, declineOffer, getContractForViewer };
+  /** CTR-03 내 계약 목록. 의뢰인·프리랜서 모두 자기 당사자 계약만. */
+  async function listMyContracts(userId, { page, status }) {
+    const where = {
+      OR: [{ clientId: userId }, { freelancerId: userId }],
+      ...(status ? { status } : {}),
+    };
+    const [totalCount, contracts] = await prisma.$transaction(
+      [
+        prisma.contract.count({ where }),
+        prisma.contract.findMany({
+          where,
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          skip: (page - 1) * CONTRACT_LIST_PAGE_SIZE,
+          take: CONTRACT_LIST_PAGE_SIZE,
+        }),
+      ],
+      { isolationLevel: 'RepeatableRead' },
+    );
+    return {
+      data: contracts.map((contract) => toContractSummary(contract, userId)),
+      pagination: pagination(page, CONTRACT_LIST_PAGE_SIZE, totalCount),
+    };
+  }
+
+  /**
+   * CTR-05 체크박스 전자서명. 서명 시각·사용자 ID는 서버 시계·토큰만 사용한다.
+   * 양측 서명 시 SIGNED + signed_at. 프로젝트는 CONTRACTING 유지(결제 전 IN_PROGRESS 금지).
+   */
+  async function signContract(userId, contractId, body) {
+    const { fields, agreed } = parseSignBody(body);
+    if (!agreed) {
+      throw new HttpError(400, 'VALIDATION_ERROR', '입력값을 확인해 주세요.', { fields });
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const { project, contract } = await lockProjectAndContract(tx, contractId);
+
+      if (contract.clientId !== userId && contract.freelancerId !== userId) {
+        throw notFoundContract();
+      }
+
+      if (project.status === 'CANCELLED' || project.deletedAt) {
+        throw invalid('취소되거나 삭제된 프로젝트의 계약에는 서명할 수 없습니다.', {
+          projectStatus: project.status,
+        });
+      }
+
+      if (contract.status === 'CANCELLED') {
+        throw invalid('취소된 계약에는 서명할 수 없습니다.', {
+          contractStatus: contract.status,
+        });
+      }
+
+      if (contract.status !== 'SIGNATURE_PENDING') {
+        if (
+          (contract.clientId === userId && contract.clientSignedAt) ||
+          (contract.freelancerId === userId && contract.freelancerSignedAt)
+        ) {
+          throw alreadySigned();
+        }
+        throw invalid('전자서명할 수 있는 계약 상태가 아닙니다.', {
+          contractStatus: contract.status,
+        });
+      }
+
+      const isClient = contract.clientId === userId;
+      if (isClient && contract.clientSignedAt) throw alreadySigned();
+      if (!isClient && contract.freelancerSignedAt) throw alreadySigned();
+
+      assertSignableSnapshot(contract);
+
+      const signedAt = clock();
+      const partyWhere = isClient ? { clientSignedAt: null } : { freelancerSignedAt: null };
+      const partyData = isClient ? { clientSignedAt: signedAt } : { freelancerSignedAt: signedAt };
+
+      const changed = await tx.contract.updateMany({
+        where: {
+          id: contract.id,
+          status: 'SIGNATURE_PENDING',
+          ...partyWhere,
+        },
+        data: partyData,
+      });
+      if (changed.count !== 1) {
+        const again = await tx.contract.findUnique({ where: { id: contract.id } });
+        if (
+          again &&
+          ((isClient && again.clientSignedAt) || (!isClient && again.freelancerSignedAt))
+        ) {
+          throw alreadySigned();
+        }
+        throw invalid('계약 상태가 바뀌어 전자서명할 수 없습니다.');
+      }
+
+      // 양측이 거의 동시에 서명해도, 두 시각이 모두 채워진 뒤에만 체결로 올린다.
+      await tx.contract.updateMany({
+        where: {
+          id: contract.id,
+          status: 'SIGNATURE_PENDING',
+          clientSignedAt: { not: null },
+          freelancerSignedAt: { not: null },
+        },
+        data: {
+          status: 'SIGNED',
+          signedAt,
+        },
+      });
+
+      const saved = await tx.contract.findUnique({ where: { id: contract.id } });
+      // 프로젝트는 CONTRACTING 유지. SIGNED ≠ 결제 완료 ≠ IN_PROGRESS.
+      return toContractDto(saved, userId, {
+        projectStatus: project.status,
+        projectDeletedAt: project.deletedAt,
+      });
+    });
+  }
+
+  return {
+    proposeOffer,
+    agreeOffer,
+    declineOffer,
+    getContractForViewer,
+    listMyContracts,
+    signContract,
+  };
 }

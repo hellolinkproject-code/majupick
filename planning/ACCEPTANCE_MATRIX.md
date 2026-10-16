@@ -98,8 +98,8 @@ BE 모듈 목록: `auth`, `users`, `techStacks`, `uploads`, `projects`, `project
 | B-04 | 합의 금액 확정(1회 제안) | 3 | applications, contracts | 선정 후 합의 금액 제안, 제안 응답 | OFFER-01, CTR-01, CTR-02 | I: 제안 → 동의/거부, 재제안·재응답 409 | 구현 (STEP 09-A, 전자서명 제외) |
 | B-05 | 금액 결렬 처리 | 3 | applications, projects | 내 지원 현황, 내 프로젝트 | CTR-02 | I: `NEGOTIATION_FAILED` + D-10 복귀/마감, 자동 거절 유지 | 구현 (STEP 09-A) |
 | B-06 | 계약서 자동 생성 | 3 | contracts | 계약서 미리보기 | CTR-01, CTR-04 | I: 합의 금액·기간·당사자 스냅샷, 프로젝트당 1건 UNIQUE, `SIGNATURE_PENDING`(미체결) | 구현 (STEP 09-A, 서명 미완) |
-| B-07 | 양측 전자 서명 | 3 | contracts | 계약서 상세 | CTR-05 | I: 한쪽만 → 미체결, 양측 → `SIGNED`, 중복 409, 비당사자 404 | 설계 |
-| B-08 | 계약서 상시 조회 | 3 | contracts | 내 계약 목록, 계약서 상세 | CTR-03, CTR-04 | I: 당사자만 조회 | 설계 |
+| B-07 | 양측 전자 서명 | 3 | contracts | 계약서 상세 | CTR-05 | I: 한쪽만 → 미체결, 양측 → `SIGNED`, 중복 409, 비당사자 404 | 구현 (STEP 09-B, 체크박스 동의) |
+| B-08 | 계약서 상시 조회 | 3 | contracts | 내 계약 목록, 계약서 상세 | CTR-03, CTR-04 | I: 당사자만 조회 | 구현 (STEP 09-B, `/me/contracts`) |
 | B-09 | PG sandbox 결제 요청 → 콜백 → 검증 | 4 | payments | 결제 페이지·결과 | PAY-01, PAY-02, PAY-03 | I(PG mock): 서명 전 거부, 금액 위변조 400, 재승인 멱등, 라이브 키 기동 거부. E: 실제 sandbox | 설계 |
 | B-10 | 결제 내역 조회 | 4 | payments | 결제 내역 | PAY-04, PAY-05 | I: 본인 관련 결제만 | 설계 |
 | B-11 | 에스크로 선결제 → 작업 중 | 4 | payments | 계약서 상세 | PAY-02 | I: 승인 시 결제 `PAID·HELD`, 계약·프로젝트 `IN_PROGRESS` 동시 | 설계 |

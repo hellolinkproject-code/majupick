@@ -641,7 +641,7 @@
 |---|---|---|---|---|
 | 1 | 확인 순서 | 403, 404, 409 | 로그인 401 → 역할 `ROLE_REQUIRED` → 의뢰인 403 `FORBIDDEN` → 없음·삭제 404 → 남의 프로젝트: 취소된 프로젝트면 404(취소된 프로젝트는 공개 범위 밖), 아니면 403 → 행 잠금 후 자동 마감 동기화 → 실제 상태 → 계약 확인 → 처리 | PRJ-03·04·STAT-01과 같은 소유자 규칙, D-109 |
 | 2 | 허용 상태 | `SCHEDULED`·`RECRUITING`·`CLOSED`·`CONTRACTING`(체결 전) | 같음. `IN_PROGRESS`·`COMPLETED` 409 "계약이 체결된 프로젝트는 취소할 수 없습니다. 정상 완료 또는 환불 절차를 거쳐야 합니다."(`details.currentStatus`). 이미 취소 409 "이미 취소된 프로젝트입니다."(멱등 200이 아님, 중복 클릭은 한 번만 반영) | A-27, D-13, D-110 |
-| 3 | 계약 확인 | 서명 전 계약 `CANCELLED` | 계약·전자서명 테이블이 아직 없다(STEP 10 예정). 서비스가 `contractPolicy { findBlockingContract, cancelOpenContracts }`를 주입받고, 지금 기본값은 "체결된 계약 없음·정리할 계약 0건"이다. **계약 데이터를 가정하거나 더미값을 만들지 않는다**: 지금 구조에서는 서명이 일어날 수 없어 `CONTRACTING`은 항상 체결 전이다. 계약 모듈을 만들 때 이 두 함수만 바꾸면 `SIGNED` 이후 409, 서명 전 계약 정리가 같은 트랜잭션에 들어간다(테스트에서 가짜 정책으로 409·롤백 확인) | D-13, D-110 |
+| 3 | 계약 확인 | 서명 전 계약 `CANCELLED` | `prismaContractPolicy`(STEP 09-A·09-B): `SIGNED` 이후(`IN_PROGRESS`·`DELIVERY_REQUESTED`·`COMPLETED` 포함)면 취소 409. `SIGNATURE_PENDING`(한쪽만 서명 포함)은 같은 TX에서 `CANCELLED` + `cancelled_at`. 이력은 물리 삭제하지 않는다(D-121) | D-13, D-110, D-121 |
 | 4 | 지원 처리 | 대기·제안 중 지원 `REJECTED(PROJECT_CANCELLED)` | `PENDING` → `REJECTED(PROJECT_CANCELLED)` + `decided_at`(= `cancelled_at`). 이미 `REJECTED`인 지원은 사유·처리 시각을 바꾸지 않는다. **`ACCEPTED`(선정된 지원)는 그대로 둔다**: 선정 이력을 지우지 않고, 지원자 화면에서 "선정됐지만 프로젝트가 취소되어 계약이 진행되지 않습니다"로 보인다. 금액·기간·자기소개는 바꾸지 않는다. '제안 중' 상태는 아직 없다(B-04 금액 합의 미구현) | D-111 |
 | 5 | 처리 | 한 트랜잭션 | 프로젝트 행 `FOR UPDATE` → `syncLockedProject`(마감일이 지났으면 먼저 `CLOSED` + `PROJECT_CLOSED` 거절 + 알림 ⑤, 수정·삭제와 같음) → 허용 상태 확인 → 계약 확인 → 대기 지원 거절 → 서명 전 계약 정리 → `CANCELLED` + `cancelled_at`. 어느 단계든 실패하면 전부 롤백 | D-102 |
 | 6 | 알림 | - | **보내지 않는다.** 필수 5종에 취소 알림이 없고, 마감 알림 ⑤로 보내면 문구가 사실과 달라진다. 지원자는 내 지원 현황·상세에서 취소를 확인한다. 별도 취소 알림은 선택 기능으로 제안만 한다 | A-36, D-112 |
@@ -774,9 +774,9 @@
 | OFFER-01 | POST | `/applications/:applicationId/offer` | 프로젝트 소유자 | B-04 | 구현 (STEP 09-A). 선정 이후 합의 금액 1회 제안(D-118) |
 | CTR-01 | POST | `/applications/:applicationId/offer/agree` | 지원 작성 프리랜서 | B-04, B-06 | 구현 (STEP 09-A). 동의+계약 생성, 전자서명 제외 |
 | CTR-02 | POST | `/applications/:applicationId/offer/decline` | 지원 작성 프리랜서 | B-04, B-05 | 구현 (STEP 09-A, D-10) |
-| CTR-03 | GET | `/me/contracts` | 로그인 | B-08 | 설계 |
-| CTR-04 | GET | `/contracts/:contractId` | 당사자 | B-06, B-08 | 구현 (STEP 09-A 미리보기). 목록·서명은 이후 |
-| CTR-05 | POST | `/contracts/:contractId/sign` | 당사자 | B-07 | 설계 (STEP 09-B) |
+| CTR-03 | GET | `/me/contracts` | 로그인 | B-08 | 구현 (STEP 09-B) |
+| CTR-04 | GET | `/contracts/:contractId` | 당사자 | B-06, B-08 | 구현 (STEP 09-A·09-B). `displayStatus`·`availableActions` 포함 |
+| CTR-05 | POST | `/contracts/:contractId/sign` | 당사자 | B-07 | 구현 (STEP 09-B). 체크박스 동의, 외부 e-sign 없음 |
 
 **CTR-01 합의 금액 동의 → 계약서 자동 생성**
 - 요청: 본문 없음

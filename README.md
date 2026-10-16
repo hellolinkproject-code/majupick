@@ -2,7 +2,7 @@
 
 의뢰인과 프리랜서를 연결하는 프로젝트 중개 플랫폼 (코드잇 풀스택 JavaScript 과제).
 
-> 현재 단계: **금액 합의·계약서 자동 생성(STEP 09-A)**. 선정 후 의뢰인이 합의 금액을 1회 제안하고, 프리랜서가 동의하면 `SIGNATURE_PENDING` 계약서가 생성된다(전자서명·결제 미구현). AI 단가 분석은 `AI_ESTIMATE_MODE=mock`·`AI_ENABLE_BILLABLE_CALLS=false`·월간 예산 0으로 **유료 호출 차단**. 이메일 회원가입·로그인(STEP 04-A), Google 로그인·역할 선택(STEP 04-B), 역할별 프로필(STEP 04-B-2), 프로젝트 등록·관리(STEP 05-A), 검색·필터(STEP 05-B), 공개 프로필(STEP 05-C), 지원·선정·거절(STEP 06), 알림·마감(STEP 06-C), 북마크(STEP 07-A), 취소(STEP 07-B), AI mock(STEP 08-A)도 그대로 동작한다. 상태는 `planning/ACCEPTANCE_MATRIX.md`. 로컬 PostgreSQL에 사용자·프로필·기술 스택·프로젝트·지원·알림·북마크·OAuth·AI 사용량 원장 테이블이 있다. **실제 과금 API 호출·소액 검증은 사용자 승인 후 STEP 08-B-2.** 계약·전자 서명·결제는 이후 단계다.
+> 현재 단계: **양측 전자서명·계약 체결(STEP 09-B)**. 금액 합의(STEP 09-A)로 만든 `SIGNATURE_PENDING` 계약서에 의뢰인·프리랜서가 체크박스 동의로 각각 서명하면 `SIGNED`(체결)가 된다. 결제·작업 시작(`IN_PROGRESS`)은 STEP 10. AI 단가 분석은 `AI_ESTIMATE_MODE=mock`·`AI_ENABLE_BILLABLE_CALLS=false`·월간 예산 0으로 **유료 호출 차단**. 이메일 회원가입·로그인, Google OAuth, 프로필, 프로젝트·지원·선정, 알림·마감, 북마크, 취소, 금액 합의도 그대로 동작한다. 상태는 `planning/ACCEPTANCE_MATRIX.md`. 외부 유료 전자서명·PG 결제는 도입하지 않았다.
 > 기획·설계 문서는 [`planning/`](./planning)에 있다.
 
 ## 기술 스택
@@ -288,13 +288,15 @@ Google 로그인 버튼은 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_R
 | `POST /api/applications/:applicationId/offer`             | 프로젝트 소유자 | 합의 금액 1회 제안(OFFER-01). `CONTRACTING`+선정 지원만. 재제안 불가                                      |
 | `POST /api/applications/:applicationId/offer/agree`       | 선정 프리랜서   | 금액 동의 → 계약서 자동 생성(`SIGNATURE_PENDING`, 미체결)                                                 |
 | `POST /api/applications/:applicationId/offer/decline`     | 선정 프리랜서   | 금액 거부 → `NEGOTIATION_FAILED`, 모집 기간이면 재모집(D-10)                                              |
-| `GET /api/contracts/:contractId`                          | 계약 당사자     | 계약서 미리보기(서명·결제 전)                                                                             |
+| `GET /api/me/contracts`                                   | 로그인          | 내 계약 목록(CTR-03). 당사자 계약만, 페이지당 10개                                                        |
+| `GET /api/contracts/:contractId`                          | 계약 당사자     | 계약서 상세(CTR-04). `displayStatus`·`availableActions` 포함                                              |
+| `POST /api/contracts/:contractId/sign`                    | 계약 당사자     | 체크박스 전자서명(CTR-05). 본문 `{ agreed: true }`만. 양측 서명 시 `SIGNED`                               |
 | `POST /api/applications/:applicationId/reject`            | 프로젝트 소유자 | 직접 거절. 그 지원만 바뀐다. 본문 없음                                                                    |
 
 - 화면: **내 프로젝트**의 **지원자 N명 관리** 또는 프로젝트 상세 아래 **지원자 관리** 영역(소유자에게만 보임). 상태 필터, 공개 프로필 링크, 제안 금액·예상 기간·자기소개·지원일을 보고 **거절** 또는 **선정**한다.
 - 선정 확인에서 "이 지원자를 선정하면 다른 대기 지원은 자동으로 거절됩니다."를 보여 준다. 요청 중에는 버튼이 잠기고, 서버가 성공을 돌려준 뒤에만 결과("다른 대기 지원 N건은 자동으로 거절되었습니다.")를 띄운다.
 - 선정·거절은 실제 모집 중(마감일 당일 23:59 KST까지)에만 된다. 한 프로젝트에서 한 명만 선정할 수 있고, 동시에 눌러도 한 건만 성공한다(프로젝트 행 잠금 + DB 부분 UNIQUE 인덱스).
-- 선정 후에는 새 지원·추가 선정·거절·수정·삭제가 막힌다. 지원서의 제안 금액은 계약 금액이 아니며, 합의 금액·계약·전자 서명·결제는 다음 단계다.
+- 선정 후 합의 금액 제안 → 프리랜서 동의로 계약서가 만들어지고, **계약서**(`/contracts/:id`)에서 양측이 체크박스 전자서명을 한다. 체결(`SIGNED`) 후에도 프로젝트는 **계약 대기**이며, 결제는 STEP 10이다.
 - 선정·거절 결과는 지원자에게 알림으로 간다(아래 **알림**).
 - 상세 명세와 정책 근거: `planning/API_SPEC_v1.md` §8·§8.1, `planning/ERD_v1.md` §7.7, `planning/DECISIONS.md` D-95~D-98(모두 제안).
 

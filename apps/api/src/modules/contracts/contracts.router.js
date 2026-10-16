@@ -4,7 +4,7 @@ import { createRequireRole } from '../../middlewares/requireRole.js';
 import { HttpError } from '../../utils/httpError.js';
 import { parseApplicationId } from '../applications/application.validation.js';
 import { createContractService } from './contract.service.js';
-import { parseContractId } from './contract.validation.js';
+import { parseContractId, parseContractListQuery } from './contract.validation.js';
 
 function onlyRole(role, message) {
   return (req, _res, next) => {
@@ -22,7 +22,9 @@ function noStore(_req, res, next) {
  * OFFER-01 POST /applications/:id/offer
  * CTR-01 POST /applications/:id/offer/agree
  * CTR-02 POST /applications/:id/offer/decline
+ * CTR-03 GET /me/contracts
  * CTR-04 GET /contracts/:contractId
+ * CTR-05 POST /contracts/:contractId/sign
  */
 export function createContractsRouter({ prisma, authConfig, contractService }) {
   const router = Router();
@@ -69,11 +71,28 @@ export function createContractsRouter({ prisma, authConfig, contractService }) {
     },
   );
 
+  router.get('/me/contracts', noStore, authenticate, requireRole, async (req, res) => {
+    const query = parseContractListQuery(req.query);
+    res.status(200).json(await service.listMyContracts(req.auth.userId, query));
+  });
+
   router.get('/contracts/:contractId', noStore, authenticate, requireRole, async (req, res) => {
     const contractId = parseContractId(req.params.contractId);
     const data = await service.getContractForViewer(req.auth.userId, contractId);
     res.status(200).json({ data });
   });
+
+  router.post(
+    '/contracts/:contractId/sign',
+    noStore,
+    authenticate,
+    requireRole,
+    async (req, res) => {
+      const contractId = parseContractId(req.params.contractId);
+      const data = await service.signContract(req.auth.userId, contractId, req.body);
+      res.status(200).json({ data });
+    },
+  );
 
   return router;
 }

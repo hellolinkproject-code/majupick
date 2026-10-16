@@ -87,6 +87,12 @@ export function MyProjectsPage() {
                 >
                   지원자 {project.applicantCount}명 관리
                 </Link>
+                {project.contractId != null && (
+                  <>
+                    {' · '}
+                    <Link to={`/contracts/${project.contractId}`}>계약서 보기</Link>
+                  </>
+                )}
               </p>
               {project.status === 'CANCELLED' && (
                 <p className="project-list__meta">

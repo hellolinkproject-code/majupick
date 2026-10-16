@@ -510,3 +510,24 @@ OpenAI 연동 코드·비용 보호(B-01). **실제 과금 HTTP는 기본 차단
 | 4 | ERD | - | **변경 없음**(결과 미저장, D-27) | - |
 | 5 | D-27, D-28 | 제안 | **변동 없음**(추천안대로 구현) | - |
 | 6 | D-02 | 확인 필요 | **변동 없음.** 새 npm 패키지·외부 서비스 호출 없음(`express-rate-limit` 기존) | - |
+
+### 2.22 STEP 09-B에서 추가된 항목
+
+양측 체크박스 전자서명(CTR-05)·내 계약 목록(CTR-03)·계약 체결(`SIGNED`)을 구현했다. 유료 전자계약·인증서·외부 서명 API는 쓰지 않는다. 기존 D-13(체결=양측 서명)·D-110·D-118은 **상태를 바꾸지 않았다**. 아래 새 항목은 모두 **제안**이다.
+
+| ID | 주제 | RFP | 추천안 / 결정 | 대안 | 확정 시점 | 상태 |
+|---|---|---|---|---|---|---|
+| D-119 | 체크박스 전자서명 정책 | 3.6.1 체크박스 허용, B-07 | 계약서 본문 확인 후 동의 문구 체크 + '전자서명 완료'. 요청 본문은 `{ agreed: true }`만. 서명 시각·사용자 ID는 서버(토큰·시계)만 기록. 당사자만, `SIGNATURE_PENDING`만, 스냅샷·금액 유효성 확인 후 서명. 중복은 409 `ALREADY_SIGNED`. 외부 전자서명 서비스 사용을 주장하지 않음 | 유료 e-sign·인증서·이미지 서명 | STEP 09-B | 제안 (구현) |
+| D-120 | 서명 후 프로젝트 상태 | D-13, B-11 | 양측 서명 → 계약 `SIGNED` + `signed_at`. **프로젝트는 `CONTRACTING` 유지**. 결제 검증(STEP 10) 성공 전에는 `IN_PROGRESS`/WORKING으로 올리지 않음. 금액 합의≠체결, 체결≠결제 | 서명 즉시 작업 중 | STEP 09-B | 제안 (구현) |
+| D-121 | 미체결 계약과 취소 | RFP 2.3, D-13, D-110 | `prismaContractPolicy`: `SIGNED` 이후 상태면 프로젝트 취소 409. `SIGNATURE_PENDING`(한쪽만 서명 포함)은 취소 TX에서 `CANCELLED` + `cancelled_at`(이력 보존, 물리 삭제 없음). 취소 후 추가 서명 409 | 한쪽 서명 후 취소 불가 | STEP 09-B | 제안 (구현) |
+
+### 4.16 STEP 09-B (2026-10-16)
+
+| # | 대상 | 이전 | 변경 | 근거 |
+|---|---|---|---|---|
+| 1 | API_SPEC CTR-03·CTR-05 | 설계 | 구현. `GET /me/contracts`, `POST /contracts/:id/sign`. CTR-04에 `displayStatus`·`availableActions` | B-07, B-08, D-119 |
+| 2 | ERD contracts 서명 컬럼 | STEP 09-A에서 정의·미사용 | 스키마 변경 없이 `client_signed_at`·`freelancer_signed_at`·`signed_at` 사용. 추가 마이그레이션 없음 | D-119 |
+| 3 | STAT-02 계약 확인 | 훅 자리(NO_CONTRACT_MODULE) | `prismaContractPolicy`가 실제 `SIGNED` 차단·`SIGNATURE_PENDING` 정리 | D-121, D-110 |
+| 4 | USER_FLOWS 헤더 | '내 계약' 생략 | 의뢰인·프리랜서 메뉴에 '내 계약' 복원 | B-08 |
+| 5 | D-13 | 부분 확정(체결=양측 서명) | **변동 없음**. 취소 주체는 제안 유지 | - |
+| 6 | D-02 | 확인 필요 | **변동 없음.** 외부 전자서명·PG 결제 서비스 없음 | - |

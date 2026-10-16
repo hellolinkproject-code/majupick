@@ -135,7 +135,12 @@ export function toProjectDetail(project, viewerId = null, viewer = {}) {
 }
 
 function toMyProject(project, counts = NO_APPLICANTS) {
-  return { ...toSummary(project), ...ownerFields(project, counts.active, counts.pending) };
+  return {
+    ...toSummary(project),
+    ...ownerFields(project, counts.active, counts.pending),
+    // 계약서가 있으면 내 프로젝트에서 바로 볼 수 있게 ID만 노출한다(본문·금액은 CTR-04).
+    contractId: project.contract?.id ?? null,
+  };
 }
 
 const NO_APPLICANTS = Object.freeze({ active: 0, pending: 0 });
@@ -521,7 +526,10 @@ export function createProjectService({ prisma, afterClose, contractPolicy = NO_C
           prisma.project.count({ where }),
           prisma.project.findMany({
             where,
-            include: projectInclude,
+            include: {
+              ...projectInclude,
+              contract: { select: { id: true } },
+            },
             orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
             skip: (page - 1) * MY_PROJECTS_PAGE_SIZE,
             take: MY_PROJECTS_PAGE_SIZE,
