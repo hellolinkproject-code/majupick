@@ -95,6 +95,24 @@ enum ContractStatus {
   @@map("contract_status")
 }
 
+/// 결제 상태(D-04, D-17). PAID만 계약당 1건(부분 UNIQUE).
+enum PaymentStatus {
+  READY
+  PAID
+  FAILED
+  REFUNDED
+
+  @@map("payment_status")
+}
+
+/// 모의 에스크로 보관·지급(D-17). 실제 금융 에스크로가 아니다(D-123).
+enum EscrowStatus {
+  HELD
+  RELEASED
+
+  @@map("escrow_status")
+}
+
 /// RFP 3.3.1 필수 알림 5종(ERD §3.12)
 enum NotificationType {
   APPLICATION_SUBMITTED
@@ -164,6 +182,7 @@ model User {
   aiUsageLedgers    AiUsageLedger[]
   clientContracts     Contract[] @relation("ContractClient")
   freelancerContracts Contract[] @relation("ContractFreelancer")
+  payments            Payment[]
 
   @@map("users")
 }
@@ -424,10 +443,51 @@ model Contract {
   application Application @relation(fields: [applicationId], references: [id], onDelete: Restrict)
   client     User        @relation("ContractClient", fields: [clientId], references: [id], onDelete: Restrict)
   freelancer User        @relation("ContractFreelancer", fields: [freelancerId], references: [id], onDelete: Restrict)
+  payments   Payment[]
 
   @@index([clientId, createdAt(sort: Desc)])
   @@index([freelancerId, createdAt(sort: Desc)])
   @@map("contracts")
+}
+
+// ---------------------------------------------------------------------------
+// 결제 (STEP 10-A, ERD_v1 §3.10). 토스페이먼츠 테스트/Fake PG. 실결제·환불·지급 없음.
+// ---------------------------------------------------------------------------
+
+model Payment {
+  id           Int           @id @default(autoincrement())
+  contractId   Int           @map("contract_id")
+  payerId      Int           @map("payer_id")
+  /// 서버 생성 주문 번호. PG·승인 검증에 사용
+  orderId      String        @unique @map("order_id") @db.VarChar(64)
+  /// PG paymentKey. 승인 후에만 채움. UNIQUE(NULL 허용)
+  paymentKey   String?       @unique @map("payment_key") @db.VarChar(200)
+  /// contracts.agreed_amount 복사. CHECK > 0
+  amount       BigInt
+  status       PaymentStatus @default(READY)
+  /// PG 응답 결제 수단(카드 등). 카드번호는 저장하지 않는다
+  method       String?       @db.VarChar(30)
+  paidAt       DateTime?     @map("paid_at") @db.Timestamptz(3)
+  failCode     String?       @map("fail_code") @db.VarChar(80)
+  failReason   String?       @map("fail_reason") @db.VarChar(500)
+  /// 모의 에스크로. PAID 시 HELD. RELEASED는 정산(STEP 10-B)
+  escrowStatus EscrowStatus? @map("escrow_status")
+  feeAmount    BigInt?       @map("fee_amount")
+  payoutAmount BigInt?       @map("payout_amount")
+  releasedAt   DateTime?     @map("released_at") @db.Timestamptz(3)
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime      @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  payer    User     @relation(fields: [payerId], references: [id], onDelete: Restrict)
+
+  /// 계약당 결제 성공 1건(B-09)
+  @@unique([contractId], map: "payments_one_paid_per_contract", where: raw("status = 'PAID'"))
+  /// 계약당 READY 주문 1건(동시 결제 시작)
+  @@unique([contractId], map: "payments_one_ready_per_contract", where: raw("status = 'READY'"))
+  @@index([payerId, createdAt(sort: Desc)])
+  @@index([contractId])
+  @@map("payments")
 }
 
 // ---------------------------------------------------------------------------

@@ -4,6 +4,7 @@ import { AuthConfigError, loadAuthConfig } from './config/auth.js';
 import { DatabaseConfigError, describeDatabase, getDatabaseConfig } from './config/database.js';
 import { loadConfig } from './config/env.js';
 import { loadGoogleOAuthConfig } from './config/google.js';
+import { loadPgConfig, PgConfigError } from './config/pg.js';
 import { loadUploadConfig } from './config/uploads.js';
 import { createPrismaClient } from './db/client.js';
 import {
@@ -13,6 +14,7 @@ import {
 } from './jobs/recruitStatusScheduler.js';
 import { createEstimateProvider } from './modules/ai/providers/index.js';
 import { createGoogleOAuthClient } from './modules/auth/googleOAuth.js';
+import { createPgClient } from './modules/payments/pgClient.js';
 import { runRecruitStatusSync } from './modules/projects/projectClosure.js';
 import { createLocalImageStorage } from './modules/uploads/imageStorage.js';
 
@@ -22,18 +24,21 @@ let database;
 let authConfig;
 let googleConfig;
 let aiConfig;
+let pgConfig;
 let recruitSyncIntervalMs;
 try {
   database = getDatabaseConfig('development');
   authConfig = loadAuthConfig();
   googleConfig = loadGoogleOAuthConfig(process.env, { corsOrigins: config.corsOrigins });
   aiConfig = loadAiConfig();
+  pgConfig = loadPgConfig();
   recruitSyncIntervalMs = parseRecruitSyncInterval(process.env.RECRUIT_SYNC_INTERVAL_MS);
 } catch (error) {
   if (
     !(error instanceof DatabaseConfigError) &&
     !(error instanceof AuthConfigError) &&
     !(error instanceof AiConfigError) &&
+    !(error instanceof PgConfigError) &&
     !(error instanceof JobConfigError)
   ) {
     throw error;
@@ -70,10 +75,21 @@ if (aiConfig.mode === 'openai' && !canMakeBillableCalls(aiConfig)) {
   );
 }
 
+if (pgConfig.mode === 'toss' && !pgConfig.usesLiveConfirm) {
+  console.warn(
+    '[api] PG_MODE=toss but TOSS_ENABLE_TEST_CALLS is false or keys missing for live confirm. Using Fake PG client (no Toss HTTP).',
+  );
+} else if (pgConfig.usesLiveConfirm) {
+  console.warn(
+    '[api] Toss Payments TEST confirm is ENABLED. Only test keys are allowed; not production charges.',
+  );
+}
+
 const prisma = createPrismaClient({ target: 'development' });
 const googleOAuth = googleConfig.enabled ? createGoogleOAuthClient(googleConfig) : null;
 const imageStorage = createLocalImageStorage(loadUploadConfig());
 const estimateProvider = createEstimateProvider(aiConfig);
+const pgClient = createPgClient(pgConfig);
 const app = createApp(config, {
   prisma,
   authConfig,
@@ -81,12 +97,15 @@ const app = createApp(config, {
   imageStorage,
   aiConfig,
   estimateProvider,
+  pgConfig,
+  pgClient,
 });
 
 const server = app.listen(config.port, () => {
   console.log(`[api] listening on http://localhost:${config.port} (${config.nodeEnv})`);
   console.log(`[api] database: ${describeDatabase(database)}`);
   console.log(`[api] AI estimate mode: ${aiConfig.mode}`);
+  console.log(`[api] PG mode: ${pgConfig.mode} (sdk=${pgConfig.usesBrowserSdk})`);
 });
 
 const recruitSync =

@@ -810,28 +810,28 @@ PG는 토스페이먼츠 sandbox 추천(D-16 제안). 흐름: `PAY-01` 결제 �
 
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
-| PAY-01 | POST | `/contracts/:contractId/payments` | 계약 의뢰인 | B-09, B-11 | 설계 |
-| PAY-02 | POST | `/payments/confirm` | 계약 의뢰인 | B-09, B-11, N-04 | 설계 |
-| PAY-03 | POST | `/payments/fail` | 계약 의뢰인 | B-09 | 설계 |
-| PAY-04 | GET | `/me/payments` | 로그인 | B-10 | 설계 |
-| PAY-05 | GET | `/payments/:paymentId` | 결제자 또는 계약 프리랜서 | B-10 | 설계 |
+| PAY-01 | POST | `/contracts/:contractId/payments` | 계약 의뢰인 | B-09, B-11 | 구현 (STEP 10-A) |
+| PAY-02 | POST | `/payments/confirm` | 계약 의뢰인 | B-09, B-11, N-04 | 구현 (STEP 10-A). Fake PG 기본 |
+| PAY-03 | POST | `/payments/fail` | 계약 의뢰인 | B-09 | 구현 (STEP 10-A) |
+| PAY-04 | GET | `/me/payments` | 로그인 | B-10 | 구현 (STEP 10-A) |
+| PAY-05 | GET | `/payments/:paymentId` | 결제자 또는 계약 프리랜서 | B-10 | 구현 (STEP 10-A) |
 
 **PAY-01 결제 준비**
 - 요청: 본문 없음 (금액은 서버가 결정)
-- 처리: 계약 `SIGNED` 확인 → `READY` 결제가 있으면 재사용, 없으면 `order_id` 생성·`amount = agreed_amount`로 생성
-- 응답 201: `{ data: { paymentId, orderId, orderName, amount, customerName } }` (PG 클라이언트 키는 FE 환경 변수에 둔다)
-- 오류: 404, 409 `INVALID_STATE_TRANSITION`(서명 전·이미 결제됨)
+- 처리: 계약 `SIGNED` + 프로젝트 `CONTRACTING` → `READY` 결제가 있으면 재사용, 없으면 `order_id` 생성·`amount = agreed_amount`로 생성(계약당 READY 1건)
+- 응답 201: `{ data: { paymentId, orderId, orderName, amount, customerName, pg: { mode, usesBrowserSdk, clientKey }, testNotice } }`
+- 오류: 404, 409 `INVALID_STATE_TRANSITION`(서명 전·이미 결제됨·취소)
 
 **PAY-02 결제 승인 검증** (PG 성공 리다이렉트 후)
-- 요청: `{ paymentKey, orderId, amount }`
+- 요청: `{ paymentKey, orderId, amount }` (amount는 문자열 권장)
 - 처리:
   1. `orderId`로 결제 조회, 요청자 = 결제자 확인
   2. **요청 금액 = DB 금액** 확인(다르면 `FAILED` 기록 + 400)
   3. 이미 `PAID`이고 같은 `paymentKey`면 기존 결과 그대로 반환(멱등)
-  4. PG 승인 API 호출(시크릿 키는 서버 환경 변수, sandbox 키만 허용)
-  5. 승인 응답의 상태·금액 재확인
-  6. 한 트랜잭션: 결제 `PAID`·`HELD`(조건부 UPDATE `status = 'READY'`), 계약 `IN_PROGRESS`·`work_started_at`, 프로젝트 `IN_PROGRESS`
-- 응답 200: `{ data: { payment: Payment, contractId } }` → FE는 계약서 상세로 이동
+  4. PG 승인 API 호출(**TX 밖**. mock이면 Fake, `PG_MODE=toss`+`TOSS_ENABLE_TEST_CALLS=true`면 토스. live 키 거부)
+  5. 승인 응답 `DONE`·금액·orderId·currency=KRW 재확인(가상계좌 대기 등은 거부)
+  6. 짧은 TX: 결제 `PAID`·`HELD`(조건부 UPDATE `status = 'READY'`), **프로젝트 `IN_PROGRESS`**, 계약은 **`SIGNED` 유지** + `work_started_at`(D-122). PG DONE 후 DB 실패 시 retrieve 복구 경로
+- 응답 200: `{ data: { payment: Payment, contractId, idempotent?, recovered? } }`
 - 오류: 400 `PAYMENT_AMOUNT_MISMATCH`, 404, 409 `INVALID_STATE_TRANSITION`, 502 `PG_ERROR`(결제는 `FAILED` 기록, 재시도 가능)
 
 **PAY-03 결제 실패 기록** (PG 실패 리다이렉트 후)

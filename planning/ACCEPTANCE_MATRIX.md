@@ -100,9 +100,9 @@ BE 모듈 목록: `auth`, `users`, `techStacks`, `uploads`, `projects`, `project
 | B-06 | 계약서 자동 생성 | 3 | contracts | 계약서 미리보기 | CTR-01, CTR-04 | I: 합의 금액·기간·당사자 스냅샷, 프로젝트당 1건 UNIQUE, `SIGNATURE_PENDING`(미체결) | 구현 (STEP 09-A, 서명 미완) |
 | B-07 | 양측 전자 서명 | 3 | contracts | 계약서 상세 | CTR-05 | I: 한쪽만 → 미체결, 양측 → `SIGNED`, 중복 409, 비당사자 404 | 구현 (STEP 09-B, 체크박스 동의) |
 | B-08 | 계약서 상시 조회 | 3 | contracts | 내 계약 목록, 계약서 상세 | CTR-03, CTR-04 | I: 당사자만 조회 | 구현 (STEP 09-B, `/me/contracts`) |
-| B-09 | PG sandbox 결제 요청 → 콜백 → 검증 | 4 | payments | 결제 페이지·결과 | PAY-01, PAY-02, PAY-03 | I(PG mock): 서명 전 거부, 금액 위변조 400, 재승인 멱등, 라이브 키 기동 거부. E: 실제 sandbox | 설계 |
-| B-10 | 결제 내역 조회 | 4 | payments | 결제 내역 | PAY-04, PAY-05 | I: 본인 관련 결제만 | 설계 |
-| B-11 | 에스크로 선결제 → 작업 중 | 4 | payments | 계약서 상세 | PAY-02 | I: 승인 시 결제 `PAID·HELD`, 계약·프로젝트 `IN_PROGRESS` 동시 | 설계 |
+| B-09 | PG sandbox 결제 요청 → 콜백 → 검증 | 4 | payments | 결제 페이지·결과 | PAY-01, PAY-02, PAY-03 | I(PG mock): 서명 전 거부, 금액 위변조 400, 재승인 멱등, 라이브 키 기동 거부. E: 실제 sandbox | 구현 (STEP 10-A, Fake PG I. 실제 샌드박스는 키 발급 후) |
+| B-10 | 결제 내역 조회 | 4 | payments | 결제 내역 | PAY-04, PAY-05 | I: 본인 관련 결제만 | 구현 (STEP 10-A) |
+| B-11 | 에스크로 선결제 → 작업 중 | 4 | payments | 계약서 상세 | PAY-02 | I: 승인 시 결제 `PAID·HELD`, 프로젝트 `IN_PROGRESS`(계약은 `SIGNED` 유지, D-122) | 구현 (STEP 10-A, 모의 에스크로) |
 | B-12 | 납품 요청 | 4 | settlements | 계약서 상세 | ESC-01 | I: 작업 중에서만 1회 | 설계 |
 | B-13 | 완료 승인 | 4 | settlements | 계약서 상세 | ESC-02 | I: 납품 요청 전 409, 중복 승인 409 | 설계 |
 | B-14 | 수수료 10% 차감 지급 처리 | 4 | settlements | 계약서 상세(정산 정보) | ESC-02, ESC-03 | U: 경계값(1, 9, 10, 15원). I: 합계 = 결제액, 프로젝트 `COMPLETED` | 설계 |
@@ -121,7 +121,7 @@ BE 모듈 목록: `auth`, `users`, `techStacks`, `uploads`, `projects`, `project
 | N-01 | 비밀번호 해싱 | 1 | auth | I: DB에 평문 없음, 응답·로그에 비밀번호 필드 없음 | 검증 (STEP 04-A: bcrypt 해시 확인, 응답에 `passwordHash` 없음) |
 | N-02 | 민감 정보 환경 변수 분리 | 0 | 설정 | 리뷰: 저장소에 키 없음 | 설계 |
 | N-03 | `.env.example` | 0 | 저장소 루트·앱별 | 리뷰 | 설계 |
-| N-04 | sandbox 결제만 | 4 | payments | I: 라이브 키 형식이면 서버 기동 거부 | 설계 |
+| N-04 | sandbox 결제만 | 4 | payments | I: 라이브 키 형식이면 서버 기동 거부 | 구현 (STEP 10-A, `loadPgConfig`) |
 | N-05 | 본인 리소스 권한 | 1~4 | 각 service | I: 타인 리소스 접근 403/404(모듈별) | 설계 |
 | N-06 | 배포 환경 전체 시나리오 | 4 | - | E: 회원가입 → 지원 → 계약 → 결제 → 리뷰 | 설계 |
 | N-07 | FE·BE 자동 배포 | 1 | CI/CD | E: `main` 머지 → 배포, SYS-01 응답 | 설계 |

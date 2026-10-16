@@ -46,12 +46,23 @@ export function toDisplayStatus(contract) {
  * @param {{ projectStatus?: string, projectDeletedAt?: Date | null }} [context]
  */
 export function toAvailableActions(contract, viewerId, context = {}) {
-  if (contract.status !== 'SIGNATURE_PENDING') return [];
   if (context.projectStatus === 'CANCELLED' || context.projectDeletedAt) return [];
   const isClient = contract.clientId === viewerId;
   const isFreelancer = contract.freelancerId === viewerId;
-  if (isClient && !contract.clientSignedAt) return ['SIGN'];
-  if (isFreelancer && !contract.freelancerSignedAt) return ['SIGN'];
+  if (contract.status === 'SIGNATURE_PENDING') {
+    if (isClient && !contract.clientSignedAt) return ['SIGN'];
+    if (isFreelancer && !contract.freelancerSignedAt) return ['SIGN'];
+    return [];
+  }
+  // SIGNED + 프로젝트 CONTRACTING + 미결제 → 의뢰인만 결제(STEP 10-A)
+  if (
+    contract.status === 'SIGNED' &&
+    isClient &&
+    context.projectStatus === 'CONTRACTING' &&
+    !context.hasPaidPayment
+  ) {
+    return ['PAY'];
+  }
   return [];
 }
 
@@ -440,10 +451,29 @@ export function createContractService({ prisma, clock = () => new Date() }) {
     if (contract.clientId !== userId && contract.freelancerId !== userId) {
       throw notFoundContract();
     }
-    return toContractDto(contract, userId, {
+    const paid = await prisma.payment.findFirst({
+      where: { contractId: contract.id, status: 'PAID' },
+      select: { id: true, status: true, escrowStatus: true, paidAt: true, amount: true },
+    });
+    const dto = toContractDto(contract, userId, {
       projectStatus: contract.project.status,
       projectDeletedAt: contract.project.deletedAt,
+      hasPaidPayment: Boolean(paid),
     });
+    return {
+      ...dto,
+      projectStatus: contract.project.status,
+      payment: paid
+        ? {
+            id: paid.id,
+            status: paid.status,
+            escrowStatus: paid.escrowStatus,
+            paidAt: paid.paidAt,
+            amount: paid.amount.toString(),
+            escrowNote: '테스트 결제 완료 / 에스크로 보관 시뮬레이션',
+          }
+        : null,
+    };
   }
 
   /** CTR-03 내 계약 목록. 의뢰인·프리랜서 모두 자기 당사자 계약만. */

@@ -448,9 +448,12 @@ erDiagram
 | created_at, updated_at | timestamptz | - | | |
 
 - **부분 UNIQUE `(contract_id) WHERE status = 'PAID'`**: 계약당 결제 성공 1건(B-09)
+- **부분 UNIQUE `(contract_id) WHERE status = 'READY'`** (STEP 10-A): 동시 결제 시작 시 READY 주문 1건만(재사용)
 - CHECK `status <> 'PAID' OR (payment_key IS NOT NULL AND paid_at IS NOT NULL AND escrow_status IS NOT NULL)`
 - CHECK `escrow_status <> 'RELEASED' OR (fee_amount + payout_amount = amount)`: 정산 합계 검증(B-14)
+- 통화 KRW는 API DTO로 고정(컬럼 없음). `project_id`는 `contracts` 경유
 - 인덱스 `(payer_id, created_at DESC)`: 결제 내역, `(contract_id)`
+- 마이그레이션: `20261016200000_payments_sandbox`, `20261016201000_payments_one_ready`
 
 ### 3.11 reviews
 
@@ -594,7 +597,7 @@ erDiagram
 | 타입 | 금액 `bigint`(`budget`, `hourly_rate`), 모집일 `date`, 그 밖의 시각 `timestamptz(3)`(UTC). `timestamp without time zone` 컬럼은 없다 |
 | 검증 | 실제 DB 카탈로그 조회 + 통합 테스트 22개(`apps/api/test/db/`) 통과 |
 
-아직 만들지 않은 테이블: ~~`applications`~~(STEP 06-A, §7.6), ~~`contracts`~~(STEP 09-A, `20261016120000_contract_amount_agreement`), `payments`, `reviews`, ~~`notifications`~~(STEP 06-C, §7.8), ~~`bookmarks`~~(STEP 07-A, §7.9). 각 기능 단계에서 새 마이그레이션으로 추가한다(기존 마이그레이션 파일은 수정하지 않는다). STEP 09-A는 `applications.offer_*`와 `contracts`를 추가했고, 선정과 금액 제안은 분리한다(D-118). STEP 09-B는 추가 마이그레이션 없이 기존 `client_signed_at`·`freelancer_signed_at`·`signed_at`으로 체크박스 전자서명을 기록한다(D-119). PG 결제는 이후 단계다.
+아직 만들지 않은 테이블: ~~`applications`~~(STEP 06-A, §7.6), ~~`contracts`~~(STEP 09-A), ~~`payments`~~(STEP 10-A, `20261016200000_payments_sandbox`), `reviews`, ~~`notifications`~~(STEP 06-C, §7.8), ~~`bookmarks`~~(STEP 07-A, §7.9). STEP 10-A는 `payments`와 `payment_status`·`escrow_status` enum, 계약당 `PAID`/`READY` 부분 UNIQUE를 추가했다. 정산 지급(`RELEASED`)·납품은 이후 단계다.
 
 ### 7.3 STEP 04-B (2026-10-13)
 

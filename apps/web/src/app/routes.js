@@ -7,11 +7,16 @@ import { MyBookmarksPage } from '../pages/MyBookmarksPage.jsx';
 import { MyProfilePage } from '../pages/MyProfilePage.jsx';
 import { ContractPreviewPage } from '../pages/ContractPreviewPage.jsx';
 import { MyContractsPage } from '../pages/MyContractsPage.jsx';
+import { MyPaymentsPage } from '../pages/MyPaymentsPage.jsx';
 import { MyProjectsPage } from '../pages/MyProjectsPage.jsx';
 import { NotFoundPage } from '../pages/NotFoundPage.jsx';
 import { NotificationsPage } from '../pages/NotificationsPage.jsx';
 import { OAuthCompletePage } from '../pages/OAuthCompletePage.jsx';
 import { OAuthLinkPage } from '../pages/OAuthLinkPage.jsx';
+import { PaymentCheckoutPage } from '../pages/PaymentCheckoutPage.jsx';
+import { PaymentDetailPage } from '../pages/PaymentDetailPage.jsx';
+import { PaymentFailPage } from '../pages/PaymentFailPage.jsx';
+import { PaymentSuccessPage } from '../pages/PaymentSuccessPage.jsx';
 import { ProjectDetailPage } from '../pages/ProjectDetailPage.jsx';
 import { ProjectEditPage } from '../pages/ProjectEditPage.jsx';
 import { ProjectNewPage } from '../pages/ProjectNewPage.jsx';
@@ -41,8 +46,13 @@ export const routes = [
           { path: 'me/projects', Component: MyProjectsPage },
           { path: 'me/applications', Component: MyApplicationsPage },
           { path: 'me/contracts', Component: MyContractsPage },
+          { path: 'me/payments', Component: MyPaymentsPage },
           { path: 'me/bookmarks', Component: MyBookmarksPage },
           { path: 'contracts/:contractId', Component: ContractPreviewPage },
+          { path: 'contracts/:contractId/pay', Component: PaymentCheckoutPage },
+          { path: 'payments/success', Component: PaymentSuccessPage },
+          { path: 'payments/fail', Component: PaymentFailPage },
+          { path: 'payments/:paymentId', Component: PaymentDetailPage },
           { path: 'notifications', Component: NotificationsPage },
           { path: 'projects/new', Component: ProjectNewPage },
           { path: 'projects/:projectId/edit', Component: ProjectEditPage },

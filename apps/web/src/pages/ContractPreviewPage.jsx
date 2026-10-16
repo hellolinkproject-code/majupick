@@ -71,6 +71,7 @@ export function ContractPreviewPage() {
     CONTRACT_DISPLAY_STATUS_LABELS[data.status] ??
     statusLabel;
   const canSign = data.availableActions?.includes('SIGN');
+  const canPay = data.availableActions?.includes('PAY');
   const waitingOther =
     data.status === 'SIGNATURE_PENDING' &&
     !canSign &&
@@ -161,9 +162,16 @@ export function ContractPreviewPage() {
         </p>
       )}
 
-      {data.isFullySigned && (
+      {data.isFullySigned && !data.payment && (
         <p className="form-success" role="status">
           계약 체결이 완료되었습니다. 아직 결제가 완료되지 않았으므로 작업은 시작되지 않습니다.
+        </p>
+      )}
+
+      {data.payment?.status === 'PAID' && (
+        <p className="form-success" role="status">
+          {data.payment.escrowNote ?? '테스트 결제 완료 / 에스크로 보관 시뮬레이션'}
+          {data.projectStatus === 'IN_PROGRESS' ? ' · 프로젝트는 작업 중입니다.' : ''}
         </p>
       )}
 
@@ -202,8 +210,16 @@ export function ContractPreviewPage() {
       )}
 
       <div className="funnel-actions">
+        {canPay && (
+          <Link to={`/contracts/${contractId}/pay`} className="button">
+            테스트 결제하기
+          </Link>
+        )}
         <Link to="/me/contracts" className="button button--ghost">
           내 계약
+        </Link>
+        <Link to="/me/payments" className="button button--ghost">
+          내 결제
         </Link>
         <Link to="/me/applications" className="button button--ghost">
           내 지원 현황
