@@ -267,7 +267,7 @@ describe('applicant management on the project detail (owner)', () => {
       ).toBeTruthy();
       expect(
         await screen.findByText(
-          '지원자 선정이 끝났습니다. 계약 체결과 결제는 별도 단계에서 진행합니다.',
+          '지원자를 선정했습니다. 합의 금액을 제안한 뒤 프리랜서 동의를 기다립니다.',
         ),
       ).toBeTruthy();
       expect(screen.getAllByText('자동 거절 · 다른 지원자 선정')).toHaveLength(2);
@@ -296,7 +296,7 @@ describe('applicant management on the project detail (owner)', () => {
     });
     expect(
       await screen.findByText(
-        '지원자 선정이 끝났습니다. 계약 체결과 결제는 별도 단계에서 진행합니다.',
+        '지원자를 선정했습니다. 합의 금액을 제안한 뒤 프리랜서 동의를 기다립니다.',
       ),
     ).toBeTruthy();
     expect(screen.getByText('총 지원자 2명 · 검토 대기 0 · 선정 1 · 거절 1')).toBeTruthy();
@@ -375,7 +375,7 @@ describe('applicant management on the project detail (owner)', () => {
     expect(screen.queryByText(/님을 선정했습니다/)).toBeNull();
     expect(
       await screen.findByText(
-        '지원자 선정이 끝났습니다. 계약 체결과 결제는 별도 단계에서 진행합니다.',
+        '지원자를 선정했습니다. 합의 금액을 제안한 뒤 프리랜서 동의를 기다립니다.',
       ),
     ).toBeTruthy();
     expect(screen.getByText('자동 거절 · 다른 지원자 선정')).toBeTruthy();

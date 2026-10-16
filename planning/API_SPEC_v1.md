@@ -771,11 +771,12 @@
 
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
-| CTR-01 | POST | `/applications/:applicationId/offer/agree` | 지원 작성 프리랜서 | B-04, B-06 | 설계 |
-| CTR-02 | POST | `/applications/:applicationId/offer/decline` | 지원 작성 프리랜서 | B-04, B-05 | 설계 |
+| OFFER-01 | POST | `/applications/:applicationId/offer` | 프로젝트 소유자 | B-04 | 구현 (STEP 09-A). 선정 이후 합의 금액 1회 제안(D-118) |
+| CTR-01 | POST | `/applications/:applicationId/offer/agree` | 지원 작성 프리랜서 | B-04, B-06 | 구현 (STEP 09-A). 동의+계약 생성, 전자서명 제외 |
+| CTR-02 | POST | `/applications/:applicationId/offer/decline` | 지원 작성 프리랜서 | B-04, B-05 | 구현 (STEP 09-A, D-10) |
 | CTR-03 | GET | `/me/contracts` | 로그인 | B-08 | 설계 |
-| CTR-04 | GET | `/contracts/:contractId` | 당사자 | B-06, B-08 | 설계 |
-| CTR-05 | POST | `/contracts/:contractId/sign` | 당사자 | B-07 | 설계 |
+| CTR-04 | GET | `/contracts/:contractId` | 당사자 | B-06, B-08 | 구현 (STEP 09-A 미리보기). 목록·서명은 이후 |
+| CTR-05 | POST | `/contracts/:contractId/sign` | 당사자 | B-07 | 설계 (STEP 09-B) |
 
 **CTR-01 합의 금액 동의 → 계약서 자동 생성**
 - 요청: 본문 없음

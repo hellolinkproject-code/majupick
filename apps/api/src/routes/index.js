@@ -6,6 +6,8 @@ import { createEstimateProvider } from '../modules/ai/providers/index.js';
 import { createApplicationsRouter } from '../modules/applications/applications.router.js';
 import { createAuthRouter } from '../modules/auth/auth.router.js';
 import { createBookmarksRouter } from '../modules/bookmarks/bookmarks.router.js';
+import { createContractsRouter } from '../modules/contracts/contracts.router.js';
+import { prismaContractPolicy } from '../modules/contracts/contractPolicy.js';
 import { createNotificationsRouter } from '../modules/notifications/notifications.router.js';
 import { createUsersRouter } from '../modules/profiles/users.router.js';
 import {
@@ -38,10 +40,11 @@ export function createApiRouter({
     apiRouter.use('/auth', createAuthRouter({ prisma, config, authConfig, googleOAuth }));
     apiRouter.use('/users', createUsersRouter({ prisma, authConfig, imageStorage }));
     apiRouter.use('/tech-stacks', createTechStacksRouter({ prisma, authConfig }));
-    const projectService = createProjectService({ prisma });
+    const projectService = createProjectService({ prisma, contractPolicy: prismaContractPolicy });
     apiRouter.use('/projects', createProjectsRouter({ prisma, authConfig, projectService }));
     apiRouter.use('/me', createMyProjectsRouter({ prisma, authConfig, projectService }));
     apiRouter.use(createApplicationsRouter({ prisma, authConfig }));
+    apiRouter.use(createContractsRouter({ prisma, authConfig }));
     apiRouter.use(createBookmarksRouter({ prisma, authConfig }));
     apiRouter.use('/notifications', createNotificationsRouter({ prisma, authConfig }));
     if (aiConfig) {

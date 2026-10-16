@@ -30,6 +30,23 @@ export const OWNER_REJECT_REASON_LABELS = Object.freeze({
   PROJECT_DELETED: '자동 거절 · 프로젝트 삭제',
 });
 
+/** 합의 금액 제안 상태(STEP 09-A). */
+export const OFFER_STATUS_LABELS = Object.freeze({
+  PENDING: '금액 합의 대기',
+  AGREED: '금액 합의 완료',
+  DECLINED: '금액 합의 거부',
+});
+
+/** 계약 상태 표시. SIGNATURE_PENDING은 체결 완료가 아니다. */
+export const CONTRACT_STATUS_LABELS = Object.freeze({
+  SIGNATURE_PENDING: '전자서명 대기',
+  SIGNED: '서명 완료(결제 대기)',
+  IN_PROGRESS: '작업 중',
+  DELIVERY_REQUESTED: '납품 요청',
+  COMPLETED: '완료',
+  CANCELLED: '취소됨',
+});
+
 export const emptyApplicationForm = () => ({
   coverLetter: '',
   proposedAmount: '',

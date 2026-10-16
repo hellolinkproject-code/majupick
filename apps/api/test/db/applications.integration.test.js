@@ -149,6 +149,8 @@ describe('applications schema', () => {
     expect(Object.keys(byName)).toEqual([
       'applications_decided_at_check',
       'applications_freelancer_id_fkey',
+      'applications_offer_amount_positive',
+      'applications_offer_fields_consistent',
       'applications_pkey',
       'applications_project_id_fkey',
       'applications_proposed_amount_check',
@@ -279,10 +281,15 @@ describe('POST /api/projects/:projectId/applications', () => {
     });
     expect(Object.keys(res.body.data).sort()).toEqual(
       [
+        'contractId',
         'coverLetter',
         'createdAt',
         'decidedAt',
         'id',
+        'offerAmount',
+        'offerRespondedAt',
+        'offerStatus',
+        'offeredAt',
         'project',
         'projectId',
         'proposedAmount',

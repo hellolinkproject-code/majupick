@@ -48,21 +48,36 @@ const applicationProjectSelect = Object.freeze({
   deletedAt: true,
 });
 
-const applicationInclude = Object.freeze({ project: { select: applicationProjectSelect } });
+const applicationProjectSelectWithClient = Object.freeze({
+  ...applicationProjectSelect,
+  clientId: true,
+});
+
+const applicationInclude = Object.freeze({
+  project: { select: applicationProjectSelect },
+  contract: { select: { id: true } },
+});
 
 /** 소유자 화면용: 지원자 공개 프로필(PROF-05와 같은 범위, 이메일·희망 단가 없음, D-87). */
 const ownerApplicationInclude = Object.freeze({
   project: { select: applicationProjectSelect },
   freelancer: { select: publicUserSelect },
+  contract: { select: { id: true } },
 });
 
 /**
  * API_SPEC_v1 §1.5 Application(작성자 본인용). freelancer는 본인이라 싣지 않는다.
- * offerAmount·offerStatus·contractId는 계약 단계에서 추가한다.
+ * offer*·contractId·availableActions(금액 합의)는 STEP 09-A에서 채운다.
  */
 export function toApplication(application, today) {
   const { project } = application;
   const isDeleted = project.deletedAt !== null;
+  const offerPending =
+    application.status === 'ACCEPTED' &&
+    application.offerStatus === 'PENDING' &&
+    project.status === 'CONTRACTING' &&
+    !project.deletedAt &&
+    project.status !== 'CANCELLED';
   return {
     id: application.id,
     projectId: application.projectId,
@@ -78,6 +93,7 @@ export function toApplication(application, today) {
       isDeleted,
       // 취소도 공개 상태로는 '모집 마감'이라, 지원자가 마감과 취소를 구분하도록 따로 알려 준다.
       isCancelled: project.status === 'CANCELLED',
+      storedStatus: project.status,
     },
     coverLetter: application.coverLetter,
     proposedAmount: application.proposedAmount.toString(),
@@ -85,8 +101,14 @@ export function toApplication(application, today) {
     status: application.status,
     rejectReason: application.rejectReason,
     decidedAt: application.decidedAt,
+    offerAmount: application.offerAmount != null ? application.offerAmount.toString() : null,
+    offerStatus: application.offerStatus ?? null,
+    offeredAt: application.offeredAt ?? null,
+    offerRespondedAt: application.offerRespondedAt ?? null,
+    contractId: application.contract?.id ?? null,
     createdAt: application.createdAt,
     updatedAt: application.updatedAt,
+    ...(offerPending ? { availableActions: ['AGREE_OFFER', 'DECLINE_OFFER'] } : {}),
   };
 }
 
@@ -101,14 +123,22 @@ function isDecisionOpen(project, today) {
 
 /**
  * 프로젝트 소유자용 Application. 작성자용 필드 + 지원자 공개 프로필 + 지금 할 수 있는 동작.
- * 화면은 availableActions만 보고 버튼을 그리며, 실제 가능 여부는 DEC-01·02가 다시 판단한다.
+ * 화면은 availableActions만 보고 버튼을 그리며, 실제 가능 여부는 DEC/OFFER API가 다시 판단한다.
  */
 export function toOwnerApplication(application, today) {
   const decidable = application.status === 'PENDING' && isDecisionOpen(application.project, today);
+  const canPropose =
+    application.status === 'ACCEPTED' &&
+    application.offerStatus == null &&
+    application.project.status === 'CONTRACTING' &&
+    application.project.deletedAt === null;
+  let availableActions = [];
+  if (decidable) availableActions = ['ACCEPT', 'REJECT'];
+  else if (canPropose) availableActions = ['PROPOSE_OFFER'];
   return {
     ...toApplication(application, today),
     freelancer: toPublicUser(application.freelancer),
-    availableActions: decidable ? ['ACCEPT', 'REJECT'] : [],
+    availableActions,
   };
 }
 
@@ -288,7 +318,7 @@ export function createApplicationService({
         where: { id: applicationId },
         include: {
           ...ownerApplicationInclude,
-          project: { select: { ...applicationProjectSelect, clientId: true } },
+          project: { select: applicationProjectSelectWithClient },
         },
       });
       const today = todayKst(clock());
@@ -359,7 +389,12 @@ export function createApplicationService({
 
           const applications = await tx.application.findMany({
             where,
-            include: ownerApplicationInclude,
+            include: {
+              ...ownerApplicationInclude,
+              project: {
+                select: { ...applicationProjectSelect, status: true, deletedAt: true },
+              },
+            },
             orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
             skip: (page - 1) * PROJECT_APPLICATIONS_PAGE_SIZE,
             take: PROJECT_APPLICATIONS_PAGE_SIZE,

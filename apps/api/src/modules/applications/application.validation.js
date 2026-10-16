@@ -67,8 +67,8 @@ export function parseApplicationListQuery(query) {
 }
 
 /**
- * DEC-01·02 본문. 선정·거절은 본문 없이 보낸다. 합의 금액(offerAmount, D-11)은 계약 단계에서 다루므로
- * 지금 보내면 조용히 무시하지 않고 400으로 알린다(지원서의 예상 단가는 계약 금액이 아니다).
+ * DEC-01·02 본문. 선정·거절은 본문 없이 보낸다. 합의 금액은 OFFER-01로 별도 제안한다(D-118).
+ * accept에 offerAmount를 넣으면 400으로 알린다(지원서 예상 단가 ≠ 합의 금액).
  * @returns {Record<string, string>} 항목별 오류(없으면 빈 객체)
  */
 export function parseDecisionBody(body) {
@@ -78,7 +78,7 @@ export function parseDecisionBody(body) {
   for (const key of Object.keys(body)) {
     fields[key] =
       key === 'offerAmount'
-        ? '합의 금액 제시는 계약 단계에서 제공합니다.'
+        ? '합의 금액은 선정 후 POST /applications/:id/offer 로 별도 제안해 주세요.'
         : '이 값은 보낼 수 없습니다.';
   }
   return fields;

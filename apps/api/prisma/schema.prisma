@@ -74,6 +74,27 @@ enum RejectReason {
   @@map("reject_reason")
 }
 
+/// 의뢰인 합의 금액 제안 상태(D-11·D-118). 선정(ACCEPTED)과 별개로, 제안 API로만 채워진다.
+enum OfferStatus {
+  PENDING
+  AGREED
+  DECLINED
+
+  @@map("offer_status")
+}
+
+/// 계약 세부 상태(D-04). 프로젝트 상태와 분리. SIGNED 이전은 체결 완료가 아니다(D-13).
+enum ContractStatus {
+  SIGNATURE_PENDING
+  SIGNED
+  IN_PROGRESS
+  DELIVERY_REQUESTED
+  COMPLETED
+  CANCELLED
+
+  @@map("contract_status")
+}
+
 /// RFP 3.3.1 필수 알림 5종(ERD §3.12)
 enum NotificationType {
   APPLICATION_SUBMITTED
@@ -141,6 +162,8 @@ model User {
   notifications     Notification[]
   bookmarks         Bookmark[]
   aiUsageLedgers    AiUsageLedger[]
+  clientContracts     Contract[] @relation("ContractClient")
+  freelancerContracts Contract[] @relation("ContractFreelancer")
 
   @@map("users")
 }
@@ -309,6 +332,7 @@ model Project {
   applications  Application[]
   notifications Notification[]
   bookmarks     Bookmark[]
+  contract      Contract?
 
   @@unique([clientId, idempotencyKey])
   @@index([status, recruitEndDate], map: "projects_status_recruit_end_date_active_idx", where: raw("deleted_at IS NULL"))
@@ -321,8 +345,8 @@ model Project {
 }
 
 // ---------------------------------------------------------------------------
-// 지원 (STEP 06-A, 선정·거절 06-B). 수락 시 금액 제안(offer_*)은 계약 단계에서
-// 새 마이그레이션으로 추가한다(ERD_v1 §3.8, §7.6~7.7).
+// 지원 (STEP 06-A·06-B) + 합의 금액 제안(STEP 09-A, ERD_v1 §3.8).
+// 선정(ACCEPTED)과 금액 제안(offer_*)은 서로 다른 이벤트다(D-118).
 // ---------------------------------------------------------------------------
 
 model Application {
@@ -332,7 +356,7 @@ model Application {
   freelancerId         Int               @map("freelancer_id")
   /// 자기소개
   coverLetter          String            @map("cover_letter")
-  /// 예상 단가(원). CHECK > 0, 상한 없음
+  /// 예상 단가(원). CHECK > 0, 상한 없음. 의뢰인 합의 제안(offer_amount)과 별개다.
   proposedAmount       BigInt            @map("proposed_amount")
   /// 예상 기간(일, D-46). CHECK > 0
   proposedDurationDays Int               @map("proposed_duration_days")
@@ -341,12 +365,18 @@ model Application {
   rejectReason         RejectReason?     @map("reject_reason")
   /// 수락·거절 시각. status <> PENDING일 때만 값(CHECK)
   decidedAt            DateTime?         @map("decided_at") @db.Timestamptz(3)
+  /// 의뢰인이 제시한 합의 금액(원). 제안 API로만 채운다(D-118). CHECK > 0
+  offerAmount          BigInt?           @map("offer_amount")
+  offerStatus          OfferStatus?      @map("offer_status")
+  offeredAt            DateTime?         @map("offered_at") @db.Timestamptz(3)
+  offerRespondedAt     DateTime?         @map("offer_responded_at") @db.Timestamptz(3)
   createdAt            DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt            DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   project       Project        @relation(fields: [projectId], references: [id], onDelete: Restrict)
   freelancer    User           @relation(fields: [freelancerId], references: [id], onDelete: Restrict)
   notifications Notification[]
+  contract      Contract?
 
   @@unique([projectId, freelancerId])
   /// 프로젝트당 선정(ACCEPTED) 1건(A-33). 수락 트랜잭션의 행 잠금이 뚫려도 DB가 막는다
@@ -354,6 +384,50 @@ model Application {
   @@index([projectId, status])
   @@index([freelancerId, createdAt(sort: Desc)])
   @@map("applications")
+}
+
+// ---------------------------------------------------------------------------
+// 계약 (STEP 09-A, ERD_v1 §3.9). 금액 동의 시 생성. 전자서명·결제는 이후 단계.
+// ---------------------------------------------------------------------------
+
+model Contract {
+  id                   Int            @id @default(autoincrement())
+  projectId            Int            @unique @map("project_id")
+  applicationId        Int            @unique @map("application_id")
+  clientId             Int            @map("client_id")
+  freelancerId         Int            @map("freelancer_id")
+  /// 생성 시점 프로젝트명 스냅샷
+  projectTitle         String         @map("project_title") @db.VarChar(100)
+  /// 서버가 applications.offer_amount에서 복사(B-06). CHECK > 0
+  agreedAmount         BigInt         @map("agreed_amount")
+  /// 지원서 예상 기간 복사(D-14). CHECK > 0
+  durationDays         Int            @map("duration_days")
+  /// 자동 생성 계약 본문
+  terms                String
+  /// 생성 시점 양측·프로젝트 핵심 정보(D-15)
+  partiesSnapshot      Json           @map("parties_snapshot")
+  status               ContractStatus @default(SIGNATURE_PENDING)
+  clientSignedAt       DateTime?      @map("client_signed_at") @db.Timestamptz(3)
+  freelancerSignedAt   DateTime?      @map("freelancer_signed_at") @db.Timestamptz(3)
+  /// 양측 서명 완료 = 계약 체결(D-13). STEP 09-A에서는 항상 NULL.
+  signedAt             DateTime?      @map("signed_at") @db.Timestamptz(3)
+  workStartedAt        DateTime?      @map("work_started_at") @db.Timestamptz(3)
+  deliveryNote         String?        @map("delivery_note")
+  deliveryUrl          String?        @map("delivery_url") @db.VarChar(500)
+  deliveryRequestedAt  DateTime?      @map("delivery_requested_at") @db.Timestamptz(3)
+  completedAt          DateTime?      @map("completed_at") @db.Timestamptz(3)
+  cancelledAt          DateTime?      @map("cancelled_at") @db.Timestamptz(3)
+  createdAt            DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime       @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  project    Project     @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  application Application @relation(fields: [applicationId], references: [id], onDelete: Restrict)
+  client     User        @relation("ContractClient", fields: [clientId], references: [id], onDelete: Restrict)
+  freelancer User        @relation("ContractFreelancer", fields: [freelancerId], references: [id], onDelete: Restrict)
+
+  @@index([clientId, createdAt(sort: Desc)])
+  @@index([freelancerId, createdAt(sort: Desc)])
+  @@map("contracts")
 }
 
 // ---------------------------------------------------------------------------

@@ -163,6 +163,9 @@ beforeAll(async () => {
 afterAll(async () => {
   if (!prisma) return;
   const runUsers = { email: { endsWith: `.${runId}@workbridge.test` } };
+  await prisma.contract.deleteMany({
+    where: { OR: [{ client: runUsers }, { freelancer: runUsers }] },
+  });
   await prisma.application.deleteMany({
     where: { OR: [{ freelancer: runUsers }, { project: { client: runUsers } }] },
   });
@@ -367,12 +370,12 @@ describe('POST /api/applications/:id/accept (DEC-01)', () => {
       status: 'ACCEPTED',
       rejectReason: null,
       proposedAmount: '1000001',
-      availableActions: [],
+      availableActions: ['PROPOSE_OFFER'],
+      offerAmount: null,
+      offerStatus: null,
+      contractId: null,
       project: { id: project.id, publicStatus: 'CLOSED' },
     });
-    // 지원서 예상 단가는 계약 금액이 아니다: 계약·합의 금액 필드를 만들지 않는다.
-    expect(res.body.data.application).not.toHaveProperty('offerAmount');
-    expect(res.body.data.application).not.toHaveProperty('contractId');
 
     const rows = await rowsOf(project.id);
     const byId = Object.fromEntries(rows.map((row) => [row.id, row]));

@@ -938,6 +938,23 @@ a {
   margin-top: 0;
 }
 
+.contract-preview__terms {
+  margin-top: 1.5rem;
+}
+
+.contract-preview__body {
+  margin: 0.75rem 0 0;
+  padding: 1rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+  font-size: 0.95rem;
+  line-height: 1.55;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+}
+
 .confirm-box.confirm-box--accept {
   background: #eff6ff;
   border-color: #bfdbfe;

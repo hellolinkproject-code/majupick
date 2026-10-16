@@ -11,6 +11,7 @@ const EXPECTED_TABLES = [
   'applications',
   'bookmarks',
   'client_profiles',
+  'contracts',
   'freelancer_profiles',
   'freelancer_tech_stacks',
   'notifications',

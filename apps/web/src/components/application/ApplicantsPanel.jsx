@@ -5,10 +5,12 @@ import {
   acceptApplication,
   fetchProjectApplications,
   projectApplicationsKey,
+  proposeOffer,
   rejectApplication,
 } from '../../lib/applicationApi.js';
 import {
   APPLICATION_STATUS_LABELS,
+  OFFER_STATUS_LABELS,
   OWNER_REJECT_REASON_LABELS,
 } from '../../lib/applicationForm.js';
 import { parseApiError } from '../../lib/authApi.js';
@@ -32,7 +34,10 @@ const CLOSED_NOTICES = {
 
 function decisionNotice(projectStatus, acceptedCount) {
   if (projectStatus === 'CANCELLED') return CLOSED_NOTICES.CANCELLED;
-  if (acceptedCount > 0 || ['CONTRACTING', 'IN_PROGRESS', 'COMPLETED'].includes(projectStatus)) {
+  if (projectStatus === 'CONTRACTING') {
+    return '지원자를 선정했습니다. 합의 금액을 제안한 뒤 프리랜서 동의를 기다립니다.';
+  }
+  if (acceptedCount > 0 || ['IN_PROGRESS', 'COMPLETED'].includes(projectStatus)) {
     return '지원자 선정이 끝났습니다. 계약 체결과 결제는 별도 단계에서 진행합니다.';
   }
   return CLOSED_NOTICES[projectStatus] ?? null;
@@ -44,6 +49,11 @@ function ApplicantStatus({ application }) {
       <span className={`status-badge application-badge--${application.status.toLowerCase()}`}>
         {APPLICATION_STATUS_LABELS[application.status] ?? application.status}
       </span>
+      {application.offerStatus && (
+        <span className="chip">
+          {OFFER_STATUS_LABELS[application.offerStatus] ?? application.offerStatus}
+        </span>
+      )}
       {application.status === 'REJECTED' && application.rejectReason && (
         <span className="chip">
           {OWNER_REJECT_REASON_LABELS[application.rejectReason] ?? application.rejectReason}
@@ -109,9 +119,15 @@ function ApplicantItem({ application, children, onAsk, busy }) {
       )}
       <dl className="applicant-card__terms">
         <div>
-          <dt>제안 금액</dt>
+          <dt>지원자 제안 금액</dt>
           <dd>{formatWon(application.proposedAmount)}</dd>
         </div>
+        {application.offerAmount && (
+          <div>
+            <dt>의뢰인 합의 제안</dt>
+            <dd>{formatWon(application.offerAmount)}</dd>
+          </div>
+        )}
         <div>
           <dt>예상 기간</dt>
           <dd>{application.proposedDurationDays.toLocaleString('ko-KR')}일</dd>
@@ -155,10 +171,65 @@ function ApplicantItem({ application, children, onAsk, busy }) {
               선정
             </button>
           )}
+          {actions.includes('PROPOSE_OFFER') && (
+            <button
+              type="button"
+              className="button"
+              aria-label={`${freelancer.name} 합의 금액 제안`}
+              disabled={busy}
+              onClick={() => onAsk('propose')}
+            >
+              합의 금액 제안
+            </button>
+          )}
         </div>
       )}
       {children}
     </li>
+  );
+}
+
+function ProposeOfferDialog({ application, pending, onCancel, onConfirm }) {
+  const [amount, setAmount] = useState(() => String(application.proposedAmount ?? ''));
+  const [localError, setLocalError] = useState('');
+  return (
+    <ConfirmDialog
+      title={`${application.freelancer.name}님에게 합의 금액을 제안할까요?`}
+      confirmLabel="제안 전송"
+      pendingLabel="제안하는 중…"
+      pending={pending}
+      onCancel={onCancel}
+      onConfirm={() => {
+        const trimmed = amount.trim().replace(/^0+(?=\d)/, '');
+        if (!/^\d{1,30}$/.test(trimmed) || BigInt(trimmed) <= 0n) {
+          setLocalError('합의 금액은 1원 이상의 정수로 입력해 주세요.');
+          return;
+        }
+        setLocalError('');
+        onConfirm(trimmed);
+      }}
+    >
+      <p>한 번 제안한 금액은 바꿀 수 없습니다. 프리랜서가 동의하면 계약서가 만들어집니다.</p>
+      <label className="form-field">
+        <span className="form-field__label">합의 금액(원)</span>
+        <input
+          type="text"
+          inputMode="numeric"
+          className="form-field__input"
+          value={amount}
+          onChange={(event) => setAmount(event.target.value.replace(/[^\d]/g, ''))}
+          disabled={pending}
+        />
+        <span className="form-field__hint">
+          기본값은 지원자 제안 금액 {formatWon(application.proposedAmount)}입니다.
+        </span>
+      </label>
+      {localError && (
+        <p className="form-alert" role="alert">
+          {localError}
+        </p>
+      )}
+    </ConfirmDialog>
   );
 }
 
@@ -192,19 +263,28 @@ export function ApplicantsPanel({ project }) {
   };
 
   const decide = useMutation({
-    mutationFn: ({ type, application }) =>
-      type === 'accept' ? acceptApplication(application.id) : rejectApplication(application.id),
+    mutationFn: ({ type, application, offerAmount }) => {
+      if (type === 'accept') return acceptApplication(application.id);
+      if (type === 'propose') return proposeOffer(application.id, offerAmount);
+      return rejectApplication(application.id);
+    },
     onSettled: () => {
       inFlight.current = false;
     },
     onSuccess: (data, { type, application }) => {
       const name = application.freelancer.name;
       setConfirming(null);
-      setResult(
-        type === 'accept'
-          ? `${name}님을 선정했습니다. 다른 대기 지원 ${data.autoRejectedCount}건은 자동으로 거절되었습니다.`
-          : `${name}님의 지원을 거절했습니다.`,
-      );
+      if (type === 'accept') {
+        setResult(
+          `${name}님을 선정했습니다. 다른 대기 지원 ${data.autoRejectedCount}건은 자동으로 거절되었습니다.`,
+        );
+      } else if (type === 'propose') {
+        setResult(
+          `${name}님에게 합의 금액 ${formatWon(data.offerAmount)}을 제안했습니다. 프리랜서 동의를 기다립니다.`,
+        );
+      } else {
+        setResult(`${name}님의 지원을 거절했습니다.`);
+      }
       refreshAll();
     },
     onError: (mutationError) => {
@@ -230,11 +310,11 @@ export function ApplicantsPanel({ project }) {
     setError('');
     setConfirming({ type, id: application.id });
   };
-  const confirm = (type, application) => {
+  const confirm = (type, application, offerAmount) => {
     if (inFlight.current) return;
     inFlight.current = true;
     setError('');
-    decide.mutate({ type, application });
+    decide.mutate({ type, application, offerAmount });
   };
 
   let body;
@@ -275,7 +355,15 @@ export function ApplicantsPanel({ project }) {
                 busy={decide.isPending}
                 onAsk={(type) => ask(type, application)}
               >
-                {open && (
+                {open === 'propose' && (
+                  <ProposeOfferDialog
+                    application={application}
+                    pending={decide.isPending}
+                    onCancel={() => setConfirming(null)}
+                    onConfirm={(offerAmount) => confirm('propose', application, offerAmount)}
+                  />
+                )}
+                {(open === 'accept' || open === 'reject') && (
                   <ConfirmDecision
                     type={open}
                     application={application}

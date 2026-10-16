@@ -2,7 +2,7 @@
 
 의뢰인과 프리랜서를 연결하는 프로젝트 중개 플랫폼 (코드잇 풀스택 JavaScript 과제).
 
-> 현재 단계: **AI 단가 분석 OpenAI 연동 코드·비용 보호(STEP 08-B-1)**. 기본 동작은 여전히 `AI_ESTIMATE_MODE=mock`이며, 유료 호출은 `AI_ENABLE_BILLABLE_CALLS=false`·월간 예산 0으로 **차단**한다(실제 OpenAI HTTP 0건). OpenAI Responses API·Structured Outputs·사용량 원장 코드는 Fake Client 테스트로만 검증했다. 이메일 회원가입·로그인(STEP 04-A), Google 로그인·역할 선택(STEP 04-B), 역할별 프로필(STEP 04-B-2), 프로젝트 등록·관리(STEP 05-A), 프로젝트 검색·필터·정렬(STEP 05-B), 사용자 공개 프로필(STEP 05-C), 프리랜서 프로젝트 지원(STEP 06-A), 의뢰인 지원자 관리·선정·거절(STEP 06-B), 인앱 알림·모집 마감(STEP 06-C), 북마크·추천(STEP 07-A), 프로젝트 취소·역할별 헤더(STEP 07-B), AI mock·예산 반영(STEP 08-A)도 그대로 동작한다. 기본 필수 요구사항별 상태는 `planning/ACCEPTANCE_MATRIX.md` §6. 로컬 PostgreSQL에 사용자·프로필·기술 스택·프로젝트·지원·알림·북마크·OAuth·AI 사용량 원장 테이블이 있다. **실제 과금 API 호출·소액 검증은 사용자 승인 후 STEP 08-B-2.** 계약·전자 서명·결제는 이후 단계다.
+> 현재 단계: **금액 합의·계약서 자동 생성(STEP 09-A)**. 선정 후 의뢰인이 합의 금액을 1회 제안하고, 프리랜서가 동의하면 `SIGNATURE_PENDING` 계약서가 생성된다(전자서명·결제 미구현). AI 단가 분석은 `AI_ESTIMATE_MODE=mock`·`AI_ENABLE_BILLABLE_CALLS=false`·월간 예산 0으로 **유료 호출 차단**. 이메일 회원가입·로그인(STEP 04-A), Google 로그인·역할 선택(STEP 04-B), 역할별 프로필(STEP 04-B-2), 프로젝트 등록·관리(STEP 05-A), 검색·필터(STEP 05-B), 공개 프로필(STEP 05-C), 지원·선정·거절(STEP 06), 알림·마감(STEP 06-C), 북마크(STEP 07-A), 취소(STEP 07-B), AI mock(STEP 08-A)도 그대로 동작한다. 상태는 `planning/ACCEPTANCE_MATRIX.md`. 로컬 PostgreSQL에 사용자·프로필·기술 스택·프로젝트·지원·알림·북마크·OAuth·AI 사용량 원장 테이블이 있다. **실제 과금 API 호출·소액 검증은 사용자 승인 후 STEP 08-B-2.** 계약·전자 서명·결제는 이후 단계다.
 > 기획·설계 문서는 [`planning/`](./planning)에 있다.
 
 ## 기술 스택
@@ -281,11 +281,15 @@ Google 로그인 버튼은 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_R
 
 ## 지원자 관리 (의뢰인)
 
-| API                                                       | 권한            | 설명                                                                                    |
-| --------------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------- |
-| `GET /api/projects/:projectId/applications?page=&status=` | 프로젝트 소유자 | 지원자 목록(10개씩, 최신 지원순). 지원자 공개 프로필 요약, 상태별 개수(`counts`) 포함   |
-| `POST /api/applications/:applicationId/accept`            | 프로젝트 소유자 | 선정. 다른 대기 지원은 같은 트랜잭션에서 자동 거절, 프로젝트는 **계약 대기**. 본문 없음 |
-| `POST /api/applications/:applicationId/reject`            | 프로젝트 소유자 | 직접 거절. 그 지원만 바뀐다. 본문 없음                                                  |
+| API                                                       | 권한            | 설명                                                                                                      |
+| --------------------------------------------------------- | --------------- | --------------------------------------------------------------------------------------------------------- |
+| `GET /api/projects/:projectId/applications?page=&status=` | 프로젝트 소유자 | 지원자 목록(10개씩, 최신 지원순). 지원자 공개 프로필 요약, 상태별 개수(`counts`) 포함                     |
+| `POST /api/applications/:applicationId/accept`            | 프로젝트 소유자 | 선정. 다른 대기 지원은 같은 트랜잭션에서 자동 거절, 프로젝트는 **계약 대기**. 본문 없음(합의 금액은 별도) |
+| `POST /api/applications/:applicationId/offer`             | 프로젝트 소유자 | 합의 금액 1회 제안(OFFER-01). `CONTRACTING`+선정 지원만. 재제안 불가                                      |
+| `POST /api/applications/:applicationId/offer/agree`       | 선정 프리랜서   | 금액 동의 → 계약서 자동 생성(`SIGNATURE_PENDING`, 미체결)                                                 |
+| `POST /api/applications/:applicationId/offer/decline`     | 선정 프리랜서   | 금액 거부 → `NEGOTIATION_FAILED`, 모집 기간이면 재모집(D-10)                                              |
+| `GET /api/contracts/:contractId`                          | 계약 당사자     | 계약서 미리보기(서명·결제 전)                                                                             |
+| `POST /api/applications/:applicationId/reject`            | 프로젝트 소유자 | 직접 거절. 그 지원만 바뀐다. 본문 없음                                                                    |
 
 - 화면: **내 프로젝트**의 **지원자 N명 관리** 또는 프로젝트 상세 아래 **지원자 관리** 영역(소유자에게만 보임). 상태 필터, 공개 프로필 링크, 제안 금액·예상 기간·자기소개·지원일을 보고 **거절** 또는 **선정**한다.
 - 선정 확인에서 "이 지원자를 선정하면 다른 대기 지원은 자동으로 거절됩니다."를 보여 준다. 요청 중에는 버튼이 잠기고, 서버가 성공을 돌려준 뒤에만 결과("다른 대기 지원 N건은 자동으로 거절되었습니다.")를 띄운다.
@@ -320,7 +324,7 @@ Google 로그인 버튼은 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_R
 - 같은 트랜잭션에서 대기 지원이 `REJECTED(PROJECT_CANCELLED)`가 된다. 이미 거절된 지원은 그대로, **선정된 지원은 남기고** 프리랜서 화면에 "선정됐지만 프로젝트가 취소되어 계약이 진행되지 않습니다"로 보인다. 중간에 실패하면 전부 되돌린다.
 - 취소 알림은 보내지 않는다(필수 5종에 없고, 마감 알림으로 보내면 문구가 틀린다). 프리랜서는 **내 지원 현황**에서 '취소' 표시를 본다.
 - 취소된 프로젝트는 검색·추천·북마크 목록에서 빠지고(북마크 기록은 남음), 상세는 소유자와 그 프로젝트 지원자만 볼 수 있다. 자동 마감 작업이나 조회로 다시 모집 중이 되지 않는다.
-- 계약 기능이 아직 없어 "체결 후 취소 불가"는 확인 함수 자리만 있다(계약 단계에서 연결).
+- 서명 전 계약(`SIGNATURE_PENDING`)은 취소 시 함께 `CANCELLED`로 정리한다. `SIGNED` 이후 계약이 있으면 프로젝트 취소는 409다(D-13·D-110).
 - 상세 명세와 정책 근거: `planning/API_SPEC_v1.md` §9.2, `planning/DECISIONS.md` D-109~D-113(모두 제안).
 
 ## 헤더·확인 창

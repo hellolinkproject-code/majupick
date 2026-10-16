@@ -121,7 +121,7 @@ describe('path and query parsing', () => {
     expect(parseDecisionBody(undefined)).toEqual({});
     expect(parseDecisionBody({})).toEqual({});
     expect(parseDecisionBody({ offerAmount: '2800000' })).toEqual({
-      offerAmount: '합의 금액 제시는 계약 단계에서 제공합니다.',
+      offerAmount: '합의 금액은 선정 후 POST /applications/:id/offer 로 별도 제안해 주세요.',
     });
     expect(Object.keys(parseDecisionBody({ status: 'ACCEPTED', reason: 'x' })).sort()).toEqual([
       'reason',
