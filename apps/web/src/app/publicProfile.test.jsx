@@ -17,6 +17,10 @@ const OPTIONS = {
     { value: 'COMMERCE', label: '커머스' },
     { value: 'ETC', label: '기타' },
   ],
+  reviewTags: {
+    forFreelancer: ['책임감', '소통', '기술력'],
+    forClient: ['명확한 요구사항', '신속한 피드백'],
+  },
 };
 const IMAGE = `/api/uploads/profile-images/${'a'.repeat(32)}.webp`;
 
@@ -27,6 +31,7 @@ const clientProfile = {
   profileImageUrl: IMAGE,
   bio: '의뢰인 소개입니다.',
   profileComplete: true,
+  ratingSummary: { average: null, count: 0 },
   clientProfile: {
     companyName: '브리지 주식회사',
     businessField: 'ETC',
@@ -42,6 +47,7 @@ const freelancerProfile = {
   profileImageUrl: null,
   bio: '긴소개'.repeat(80),
   profileComplete: true,
+  ratingSummary: { average: 4.5, count: 2 },
   clientProfile: null,
   freelancerProfile: {
     mainCategory: 'WEB',
@@ -107,7 +113,43 @@ describe('public profile page (PROF-05)', () => {
   });
 
   it('shows a freelancer profile with category, career, tech stacks and portfolio', async () => {
-    renderAt('/users/12', { 'GET /users/12': () => ({ data: { data: freelancerProfile } }) });
+    renderAt('/users/12', {
+      'GET /users/12': () => ({ data: { data: freelancerProfile } }),
+      'GET /users/12/reviews': () => ({
+        data: {
+          data: [
+            {
+              id: 1,
+              contractId: 55,
+              projectId: 41,
+              projectTitle: '쇼핑몰 리뉴얼',
+              reviewerId: 11,
+              revieweeId: 12,
+              reviewerName: '김의뢰',
+              rating: 5,
+              content: '책임감 있게 잘 마무리해 주셨습니다.',
+              tags: ['책임감', '기술력'],
+              createdAt: '2026-10-18T02:00:00.000Z',
+            },
+            {
+              id: 2,
+              contractId: 56,
+              projectId: 42,
+              projectTitle: '랜딩 페이지',
+              reviewerId: 13,
+              revieweeId: 12,
+              reviewerName: '이의뢰',
+              rating: 4,
+              content: '소통이 원활했습니다.',
+              tags: ['소통'],
+              createdAt: '2026-10-17T02:00:00.000Z',
+            },
+          ],
+          pagination: { page: 1, pageSize: 10, totalCount: 2, totalPages: 1 },
+          summary: { average: 4.5, count: 2 },
+        },
+      }),
+    });
 
     expect(await screen.findByRole('heading', { level: 1, name: '박프리' })).toBeTruthy();
     expect(screen.getByText('프리랜서 · 웹')).toBeTruthy();
@@ -124,6 +166,16 @@ describe('public profile page (PROF-05)', () => {
     expect(screen.getByRole('img', { name: '기본 프로필 이미지' }).textContent).toBe('박');
     expect(screen.queryByText(/단가/)).toBeNull();
     expect(screen.queryByText(/@/)).toBeNull();
+    expect(await screen.findByText(/평균 별점/)).toBeTruthy();
+    expect(screen.getByText('4.5')).toBeTruthy();
+    expect(screen.getByText('책임감 있게 잘 마무리해 주셨습니다.')).toBeTruthy();
+    expect(screen.getByText('김의뢰')).toBeTruthy();
+  });
+
+  it('shows empty review message without pretending the average is zero', async () => {
+    renderAt('/users/11', { 'GET /users/11': () => ({ data: { data: clientProfile } }) });
+    expect(await screen.findByText('아직 리뷰가 없습니다')).toBeTruthy();
+    expect(screen.queryByText(/평균 별점/)).toBeNull();
   });
 
   it('falls back to the default image when the stored image cannot be loaded', async () => {

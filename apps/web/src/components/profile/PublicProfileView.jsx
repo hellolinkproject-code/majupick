@@ -1,3 +1,4 @@
+import { PublicReviewSection } from '../review/ReviewList.jsx';
 import { externalUrl } from '../../lib/profileApi.js';
 import { ProfileAvatar } from './ProfileAvatar.jsx';
 
@@ -49,11 +50,24 @@ function careerText(years) {
 }
 
 /**
- * PROF-05 공개 프로필 본문. 읽기 전용이며 수정 API를 부르지 않는다.
+ * PROF-05·B-19 공개 프로필 본문. 읽기 전용이며 수정 API를 부르지 않는다.
  * 지원자 목록(STEP 06)에서도 같은 공개 응답으로 쓸 수 있게 페이지와 분리했다.
- * @param {{ profile: object, options?: { projectCategories: object[], businessFields: object[] }, headingLevel?: 'h1' | 'h2' | 'h3' }} props
+ * @param {{
+ *   profile: object,
+ *   options?: { projectCategories: object[], businessFields: object[] },
+ *   headingLevel?: 'h1' | 'h2' | 'h3',
+ *   reviews?: {
+ *     summary?: { average: number | null, count: number },
+ *     items?: object[],
+ *     pagination?: object,
+ *     loading?: boolean,
+ *     error?: string,
+ *     onRetry?: () => void,
+ *     onPageChange?: (page: number) => void,
+ *   },
+ * }} props
  */
-export function PublicProfileView({ profile, options, headingLevel = 'h1' }) {
+export function PublicProfileView({ profile, options, headingLevel = 'h1', reviews }) {
   const level = Number(headingLevel.slice(1));
   const Heading = headingLevel;
   const Section = `h${level + 1}`;
@@ -150,6 +164,18 @@ export function PublicProfileView({ profile, options, headingLevel = 'h1' }) {
           <p className="page-status">등록된 소개가 없습니다.</p>
         )}
       </section>
+
+      {reviews && (
+        <PublicReviewSection
+          summary={reviews.summary ?? profile.ratingSummary}
+          reviews={reviews.items}
+          pagination={reviews.pagination}
+          loading={reviews.loading}
+          error={reviews.error}
+          onRetry={reviews.onRetry}
+          onPageChange={reviews.onPageChange}
+        />
+      )}
     </div>
   );
 }

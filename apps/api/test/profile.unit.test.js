@@ -262,7 +262,7 @@ describe('profile image checks', () => {
 });
 
 describe('GET /api/meta/options', () => {
-  it('returns the selectable categories and business fields without a database', async () => {
+  it('returns the selectable categories, business fields, and review tags without a database', async () => {
     const res = await request(createApp(loadConfig({}))).get('/api/meta/options');
     expect(res.status).toBe(200);
     expect(res.body.data.projectCategories).toContainEqual({
@@ -270,5 +270,7 @@ describe('GET /api/meta/options', () => {
       label: '데이터·AI',
     });
     expect(res.body.data.businessFields).toContainEqual({ value: 'ETC', label: '기타' });
+    expect(res.body.data.reviewTags.forFreelancer).toContain('책임감');
+    expect(res.body.data.reviewTags.forClient).toContain('명확한 요구사항');
   });
 });

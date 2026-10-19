@@ -100,3 +100,25 @@ export async function fetchSettlement(contractId) {
   const res = await apiClient.get(`/contracts/${contractId}/settlement`);
   return res.data.data;
 }
+
+/** REV-01 리뷰 작성. reviewer/reviewee는 서버가 결정한다. */
+export async function createReview(contractId, { rating, content, tags }) {
+  const res = await apiClient.post(`/contracts/${contractId}/reviews`, {
+    rating,
+    content,
+    tags,
+  });
+  return res.data.data;
+}
+
+/** REV-02 계약의 리뷰 현황. */
+export async function fetchContractReviews(contractId) {
+  const res = await apiClient.get(`/contracts/${contractId}/reviews`);
+  return res.data.data;
+}
+
+/** REV-03 사용자가 받은 리뷰(공개). */
+export async function fetchUserReviews(userId, { page = 1 } = {}) {
+  const res = await apiClient.get(`/users/${userId}/reviews`, { params: { page } });
+  return res.data;
+}

@@ -20,6 +20,7 @@ const EXPECTED_TABLES = [
   'project_tech_stacks',
   'projects',
   'refresh_tokens',
+  'reviews',
   'social_accounts',
   'tech_stacks',
   'users',

@@ -15,7 +15,13 @@ const invalid = (message, details) =>
  * work_started_at + 프로젝트 IN_PROGRESS + 결제 PAID/HELD 로 한다.
  * 납품 요청 시 SIGNED(또는 IN_PROGRESS) → DELIVERY_REQUESTED.
  */
+const TX_OPTIONS = Object.freeze({ maxWait: 15_000, timeout: 30_000 });
+
 export function createSettlementService({ prisma, clock = () => new Date() }) {
+  /**
+   * 잠금 순서: project → contract → payment (다른 모듈과 동일하게 데드락을 줄인다).
+   * FOR UPDATE는 짧은 TX 안에서만 잡고, 조회는 잠금 직후 한 번에 끝낸다.
+   */
   async function lockProjectContractPayment(tx, contractId) {
     const head = await tx.contract.findUnique({
       where: { id: contractId },
@@ -24,20 +30,16 @@ export function createSettlementService({ prisma, clock = () => new Date() }) {
     if (!head) throw notFoundContract();
     await tx.$queryRaw`SELECT id FROM projects WHERE id = ${head.projectId} FOR UPDATE`;
     await tx.$queryRaw`SELECT id FROM contracts WHERE id = ${contractId} FOR UPDATE`;
+    const paymentRows = await tx.$queryRaw`
+      SELECT id FROM payments
+      WHERE contract_id = ${contractId} AND status = 'PAID'
+      FOR UPDATE`;
     const project = await tx.project.findUnique({ where: { id: head.projectId } });
     const contract = await tx.contract.findUnique({ where: { id: contractId } });
     if (!project || project.deletedAt || !contract) throw notFoundContract();
-    const payment = await tx.payment.findFirst({
-      where: { contractId: contract.id, status: 'PAID' },
-    });
-    if (payment) {
-      await tx.$queryRaw`SELECT id FROM payments WHERE id = ${payment.id} FOR UPDATE`;
-    }
-    return {
-      project,
-      contract,
-      payment: payment ? await tx.payment.findUnique({ where: { id: payment.id } }) : null,
-    };
+    const paymentId = paymentRows[0]?.id ?? null;
+    const payment = paymentId ? await tx.payment.findUnique({ where: { id: paymentId } }) : null;
+    return { project, contract, payment };
   }
 
   function assertParty(contract, userId) {
@@ -140,7 +142,7 @@ export function createSettlementService({ prisma, clock = () => new Date() }) {
           escrowNote: '테스트 결제 완료 / 에스크로 보관 시뮬레이션',
         },
       };
-    });
+    }, TX_OPTIONS);
   }
 
   /**
@@ -264,7 +266,7 @@ export function createSettlementService({ prisma, clock = () => new Date() }) {
       };
 
       return { contract: contractDto, settlement };
-    });
+    }, TX_OPTIONS);
   }
 
   /** ESC-03 정산 정보. 당사자만. 지급 전이면 예상 수수료·지급액. */

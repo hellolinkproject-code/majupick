@@ -91,6 +91,16 @@ export function toAvailableActions(contract, viewerId, context = {}) {
   ) {
     return ['APPROVE'];
   }
+  // 완료·RELEASED·미작성 → 리뷰(B-15)
+  if (
+    (isClient || isFreelancer) &&
+    contract.status === 'COMPLETED' &&
+    context.projectStatus === 'COMPLETED' &&
+    context.escrowStatus === 'RELEASED' &&
+    !context.hasWrittenReview
+  ) {
+    return ['WRITE_REVIEW'];
+  }
   return [];
 }
 
@@ -499,15 +509,23 @@ export function createContractService({ prisma, clock = () => new Date() }) {
         releasedAt: true,
       },
     });
+    const myReview = await prisma.review.findUnique({
+      where: {
+        contractId_reviewerId: { contractId: contract.id, reviewerId: userId },
+      },
+      select: { id: true },
+    });
     const dto = toContractDto(contract, userId, {
       projectStatus: contract.project.status,
       projectDeletedAt: contract.project.deletedAt,
       hasPaidPayment: Boolean(paid),
       escrowStatus: paid?.escrowStatus ?? null,
+      hasWrittenReview: Boolean(myReview),
     });
     return {
       ...dto,
       projectStatus: contract.project.status,
+      hasWrittenReview: Boolean(myReview),
       payment: paid
         ? {
             id: paid.id,

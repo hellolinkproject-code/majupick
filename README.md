@@ -2,7 +2,7 @@
 
 의뢰인과 프리랜서를 연결하는 프로젝트 중개 플랫폼 (코드잇 풀스택 JavaScript 과제).
 
-> 현재 단계: **PG 샌드박스/Fake 결제(STEP 10-A)**. 양측 서명(`SIGNED`) 후 의뢰인이 테스트 결제 → 서버가 PG 승인(`DONE`)을 검증하면 결제 `PAID`·모의 에스크로 `HELD`·프로젝트 `IN_PROGRESS`(계약은 `SIGNED` 유지). 기본 `PG_MODE=mock`(Fake PG). 토스 테스트 키+`TOSS_ENABLE_TEST_CALLS=true`일 때만 실제 샌드박스 HTTP. **live 키·실결제·환불·실송금 없음.** AI는 mock·유료 호출 차단 유지.
+> 현재 단계: **상호 리뷰(STEP 11)**. 완료·모의 정산(`RELEASED`) 후 의뢰인↔프리랜서가 계약서 상세에서 리뷰 1회 작성(수정 불가). 공개 프로필에 평균 별점·리뷰 목록. 그 전 단계: 서명 → Fake/토스 테스트 결제 → 납품 → 완료 승인 → 수수료 10% 모의 정산 → `COMPLETED`. 기본 `PG_MODE=mock`, `AI_ESTIMATE_MODE=mock`. **live 키·실결제·환불·실송금·OpenAI 유료 호출 없음.**
 > 기획·설계 문서는 [`planning/`](./planning)에 있다.
 
 ## 기술 스택
@@ -329,6 +329,20 @@ Google 로그인 버튼은 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_R
 - 기본 `PG_MODE=mock`(Fake PG). 토스 테스트 키 + `TOSS_ENABLE_TEST_CALLS=true`일 때만 샌드박스 HTTP. `live_*` 키는 서버 기동 거부(N-04).
 - UI·DTO에 "테스트 결제 완료 / 에스크로 보관 시뮬레이션"을 표시한다. 실계좌 보관·환불·송금은 없다(D-123).
 - 상세: `planning/API_SPEC_v1.md` §11, `planning/DECISIONS.md` D-122·D-123.
+
+## 납품·모의 정산·상호 리뷰
+
+| API                                         | 권한          | 설명                                                                    |
+| ------------------------------------------- | ------------- | ----------------------------------------------------------------------- |
+| `POST /api/contracts/:contractId/delivery`  | 계약 프리랜서 | 납품 요청(ESC-01). 1회만                                                |
+| `POST /api/contracts/:contractId/approve`   | 계약 의뢰인   | 완료 승인 + 모의 정산(ESC-02). 수수료 10%·`RELEASED`·프로젝트 완료      |
+| `GET /api/contracts/:contractId/settlement` | 계약 당사자   | 정산 미리보기/결과(ESC-03)                                              |
+| `POST /api/contracts/:contractId/reviews`   | 계약 당사자   | 리뷰 작성(REV-01). 완료·RELEASED만. 1회·수정 불가                       |
+| `GET /api/contracts/:contractId/reviews`    | 계약 당사자   | 내/상대 리뷰(REV-02)                                                    |
+| `GET /api/users/:userId/reviews`            | 공개          | 받은 리뷰 목록·평균(REV-03). `ratingSummary`는 `GET /users/:userId`에도 |
+
+- 화면: 계약서 상세에서 상태별 **납품 요청** → **완료 승인 및 모의 정산** → **리뷰 작성**(별점·태그·확인 창). 공개 프로필(`/users/:id`)에 평균 별점·리뷰 목록.
+- 실제 송금·환불·리뷰 수정·삭제 API 없음. 태그 목록은 `GET /meta/options`의 `reviewTags`(D-20 제안).
 
 ## 프로젝트 취소
 

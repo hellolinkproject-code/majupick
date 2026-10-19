@@ -173,6 +173,11 @@ afterAll(async () => {
     .filter(Boolean)
     .map((u) => u.id);
   if (userIds.length > 0) {
+    await prisma.review.deleteMany({
+      where: {
+        OR: [{ reviewerId: { in: userIds } }, { revieweeId: { in: userIds } }],
+      },
+    });
     await prisma.payment.deleteMany({
       where: { OR: [{ payerId: { in: userIds } }, { contract: { clientId: { in: userIds } } }] },
     });

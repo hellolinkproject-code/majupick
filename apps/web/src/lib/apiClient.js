@@ -18,10 +18,13 @@ const REFRESHABLE_CODES = new Set(['TOKEN_EXPIRED', 'UNAUTHENTICATED']);
 const REFRESH_LOCK = 'workbridge-auth-refresh';
 
 let refreshPromise = null;
+/** 테스트 전환 시 이전 refresh 콜백이 다음 테스트 세션을 덮어쓰지 않게 한다. */
+let refreshGeneration = 0;
 
 /** 테스트 간 공유되는 재발급 Promise를 비운다. 프로덕션 코드에서는 호출하지 않는다. */
 export function resetRefreshStateForTests() {
   refreshPromise = null;
+  refreshGeneration += 1;
 }
 
 function requestRefresh() {
@@ -40,18 +43,25 @@ function requestRefresh() {
  * 실패하면 로그인 상태를 해제하고 오류를 던진다.
  */
 export function refreshSession() {
+  const generation = refreshGeneration;
   if (!refreshPromise) {
     refreshPromise = requestRefresh()
       .then((session) => {
+        // 테스트가 mock을 교체한 뒤에도 이전 요청이 끝나면 세션을 덮어쓸 수 있다.
+        if (generation !== refreshGeneration) return session;
         useSessionStore.getState().setSession(session);
         return session;
       })
       .catch((error) => {
-        useSessionStore.getState().clearSession();
+        if (generation === refreshGeneration) {
+          useSessionStore.getState().clearSession();
+        }
         throw error;
       })
       .finally(() => {
-        refreshPromise = null;
+        if (generation === refreshGeneration) {
+          refreshPromise = null;
+        }
       });
   }
   return refreshPromise;

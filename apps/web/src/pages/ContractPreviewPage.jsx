@@ -2,9 +2,13 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { NoticeCard } from '../components/project/ProjectBits.jsx';
+import { ReviewForm } from '../components/review/ReviewForm.jsx';
+import { ReviewCard } from '../components/review/ReviewList.jsx';
 import {
   approveDelivery,
+  createReview,
   fetchContract,
+  fetchContractReviews,
   fetchSettlement,
   requestDelivery,
   signContract,
@@ -15,6 +19,7 @@ import {
   SIGNATURE_CONSENT_LABEL,
 } from '../lib/applicationForm.js';
 import { parseApiError } from '../lib/authApi.js';
+import { fetchMetaOptions } from '../lib/profileApi.js';
 import { formatWon } from '../lib/profileForm.js';
 import { formatDay, toKstDay } from '../lib/projectForm.js';
 import { useSessionStore } from '../stores/useSessionStore.js';
@@ -59,6 +64,19 @@ export function ContractPreviewPage() {
     staleTime: 0,
   });
 
+  const reviews = useQuery({
+    queryKey: ['contract-reviews', contractId],
+    queryFn: () => fetchContractReviews(contractId),
+    enabled: Boolean(userId && contractId && contract.data?.status === 'COMPLETED'),
+    staleTime: 0,
+  });
+
+  const meta = useQuery({
+    queryKey: ['meta-options'],
+    queryFn: fetchMetaOptions,
+    staleTime: Infinity,
+  });
+
   const sign = useMutation({
     mutationFn: () => signContract(contractId),
     onSuccess: (data) => {
@@ -99,9 +117,37 @@ export function ContractPreviewPage() {
       queryClient.invalidateQueries({ queryKey: ['my-contracts'] });
       queryClient.invalidateQueries({ queryKey: ['my-projects'] });
       queryClient.invalidateQueries({ queryKey: ['my-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['contract-reviews', contractId] });
       setFlowNotice(
         `완료 승인되었습니다. 모의 정산: 수수료 ${formatWon(data.settlement.feeAmount)} / 지급액 ${formatWon(data.settlement.payoutAmount)} (실제 송금 없음)`,
       );
+    },
+  });
+
+  const review = useMutation({
+    mutationFn: (payload) => createReview(contractId, payload),
+    onSuccess: (data) => {
+      queryClient.setQueryData(['contract-reviews', contractId], (prev) => ({
+        myReview: data,
+        counterpartReview: prev?.counterpartReview ?? null,
+      }));
+      queryClient.setQueryData(['contract', contractId], (prev) =>
+        prev
+          ? {
+              ...prev,
+              availableActions: (prev.availableActions ?? []).filter(
+                (action) => action !== 'WRITE_REVIEW',
+              ),
+              hasWrittenReview: true,
+            }
+          : prev,
+      );
+      queryClient.invalidateQueries({ queryKey: ['contract', contractId] });
+      queryClient.invalidateQueries({
+        queryKey: ['public-reviews', data.revieweeId],
+      });
+      queryClient.invalidateQueries({ queryKey: ['public-profile', String(data.revieweeId)] });
+      setFlowNotice('리뷰를 작성했습니다. 작성한 리뷰는 수정할 수 없습니다.');
     },
   });
 
@@ -128,6 +174,14 @@ export function ContractPreviewPage() {
   const canPay = data.availableActions?.includes('PAY');
   const canRequestDelivery = data.availableActions?.includes('REQUEST_DELIVERY');
   const canApprove = data.availableActions?.includes('APPROVE');
+  const canWriteReview = data.availableActions?.includes('WRITE_REVIEW');
+  const myReview = reviews.data?.myReview ?? null;
+  const reviewTags =
+    data.viewerRole === 'CLIENT'
+      ? (meta.data?.reviewTags?.forFreelancer ?? [])
+      : data.viewerRole === 'FREELANCER'
+        ? (meta.data?.reviewTags?.forClient ?? [])
+        : [];
   const waitingOther =
     data.status === 'SIGNATURE_PENDING' &&
     !canSign &&
@@ -408,6 +462,17 @@ export function ContractPreviewPage() {
           </button>
         </section>
       )}
+
+      {canWriteReview && (
+        <ReviewForm
+          tags={reviewTags}
+          pending={review.isPending}
+          error={review.isError ? parseApiError(review.error).message : ''}
+          onSubmit={(payload) => review.mutate(payload)}
+        />
+      )}
+
+      {myReview && !canWriteReview && <ReviewCard review={myReview} />}
 
       <div className="funnel-actions">
         {canPay && (

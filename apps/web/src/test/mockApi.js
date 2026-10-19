@@ -7,8 +7,19 @@ const DEFAULT_HANDLERS = Object.freeze({
 });
 
 /** 상세 화면 아래 추천(SRCH-02)은 모든 상세에서 불린다. 테스트가 따로 정하지 않으면 빈 목록이다. */
+/** 공개 프로필 리뷰(REV-03)도 기본은 0건. */
 const DEFAULT_PATTERN_HANDLERS = Object.freeze([
   [/^GET \/projects\/[^/]+\/recommendations$/, () => ({ data: { data: [] } })],
+  [
+    /^GET \/users\/[^/]+\/reviews$/,
+    () => ({
+      data: {
+        data: [],
+        pagination: { page: 1, pageSize: 10, totalCount: 0, totalPages: 0 },
+        summary: { average: null, count: 0 },
+      },
+    }),
+  ],
 ]);
 
 function defaultHandlerFor(key) {

@@ -203,6 +203,7 @@ describe('GET /api/users/:userId (PROF-05)', () => {
       profileImageUrl: null,
       bio: '의뢰인 소개입니다.',
       profileComplete: true,
+      ratingSummary: { average: null, count: 0 },
       clientProfile: {
         companyName: '공개 테스트 주식회사',
         businessField: 'ETC',
@@ -224,6 +225,7 @@ describe('GET /api/users/:userId (PROF-05)', () => {
       profileImageUrl: null,
       bio: null,
       profileComplete: true,
+      ratingSummary: { average: null, count: 0 },
       clientProfile: null,
       freelancerProfile: {
         mainCategory: 'WEB',
@@ -309,10 +311,10 @@ describe('GET /api/users/:userId (PROF-05)', () => {
         await findPublicUser(counting, userId);
         return queries.length;
       };
-      // 관계 단계마다 한 번(users·두 프로필·연결·기술 스택)이며 기술 스택 수와 무관하다.
+      // 관계 단계마다 한 번(users·두 프로필·연결·기술 스택) + 별점 aggregate 1회. 기술 스택 수와 무관하다.
       const twoStacks = await countFor(users.freelancer.id);
       const noStacks = await countFor(users.incompleteFreelancer.id);
-      expect(twoStacks).toBeLessThanOrEqual(5);
+      expect(twoStacks).toBeLessThanOrEqual(6);
       expect(noStacks).toBe(twoStacks);
       expect(await countFor(users.incompleteClient.id)).toBeLessThanOrEqual(twoStacks);
       expect(queries.every((sql) => /^\s*SELECT/i.test(sql))).toBe(true);

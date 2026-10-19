@@ -471,6 +471,7 @@ erDiagram
 - **UNIQUE `(contract_id, reviewer_id)`**: 작성자별 1회(B-18)
 - CHECK `reviewer_id <> reviewee_id`
 - 인덱스 `(reviewee_id, created_at DESC)`: 공개 프로필 리뷰 목록·평균 별점(B-19)
+- 마이그레이션: `20261019120000_reviews` (STEP 11). `project_id` 컬럼 없음 — `contracts` 경유
 
 ### 3.12 notifications
 

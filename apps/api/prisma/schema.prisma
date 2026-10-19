@@ -183,6 +183,8 @@ model User {
   clientContracts     Contract[] @relation("ContractClient")
   freelancerContracts Contract[] @relation("ContractFreelancer")
   payments            Payment[]
+  reviewsWritten      Review[]   @relation("ReviewReviewer")
+  reviewsReceived     Review[]   @relation("ReviewReviewee")
 
   @@map("users")
 }
@@ -444,10 +446,37 @@ model Contract {
   client     User        @relation("ContractClient", fields: [clientId], references: [id], onDelete: Restrict)
   freelancer User        @relation("ContractFreelancer", fields: [freelancerId], references: [id], onDelete: Restrict)
   payments   Payment[]
+  reviews    Review[]
 
   @@index([clientId, createdAt(sort: Desc)])
   @@index([freelancerId, createdAt(sort: Desc)])
   @@map("contracts")
+}
+
+// ---------------------------------------------------------------------------
+// 상호 리뷰 (STEP 11, ERD_v1 §3.11). 완료·RELEASED 후에만. 수정·삭제 API 없음(B-18).
+// ---------------------------------------------------------------------------
+
+model Review {
+  id         Int      @id @default(autoincrement())
+  contractId Int      @map("contract_id")
+  reviewerId Int      @map("reviewer_id")
+  revieweeId Int      @map("reviewee_id")
+  /// CHECK 1..5 (마이그레이션 SQL)
+  rating     Int      @db.SmallInt
+  content    String
+  /// 역할별 허용 태그만(D-20). 서비스 검증
+  tags       String[] @default([])
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  contract Contract @relation(fields: [contractId], references: [id], onDelete: Restrict)
+  reviewer User     @relation("ReviewReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+  reviewee User     @relation("ReviewReviewee", fields: [revieweeId], references: [id], onDelete: Restrict)
+
+  /// 작성자별 계약당 1회(B-18)
+  @@unique([contractId, reviewerId])
+  @@index([revieweeId, createdAt(sort: Desc)])
+  @@map("reviews")
 }
 
 // ---------------------------------------------------------------------------

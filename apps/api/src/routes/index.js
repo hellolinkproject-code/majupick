@@ -19,6 +19,7 @@ import {
 } from '../modules/projects/projects.router.js';
 import { createProjectService } from '../modules/projects/project.service.js';
 import { createTechStacksRouter } from '../modules/techStacks/techStacks.router.js';
+import { createReviewsRouter } from '../modules/reviews/reviews.router.js';
 import { createUploadsRouter } from '../modules/uploads/uploads.router.js';
 
 /**
@@ -52,6 +53,7 @@ export function createApiRouter({
     apiRouter.use('/me', createMyProjectsRouter({ prisma, authConfig, projectService }));
     apiRouter.use(createApplicationsRouter({ prisma, authConfig }));
     apiRouter.use(createContractsRouter({ prisma, authConfig }));
+    apiRouter.use(createReviewsRouter({ prisma, authConfig }));
     apiRouter.use(createBookmarksRouter({ prisma, authConfig }));
     apiRouter.use('/notifications', createNotificationsRouter({ prisma, authConfig }));
     if (pgConfig) {

@@ -1,4 +1,5 @@
 import { HttpError } from '../../utils/httpError.js';
+import { averageRating } from '../reviews/reviewMath.js';
 import { publicUserSelect, toPublicUser } from '../users/publicUser.js';
 
 const notFound = () => new HttpError(404, 'NOT_FOUND', '사용자를 찾을 수 없습니다.');
@@ -12,10 +13,23 @@ export function parseUserId(value) {
 
 /**
  * PROF-05. 역할을 고르지 않은 계정은 공개할 프로필이 없으므로 없는 사용자와 구분하지 않는다(D-88).
- * 관계는 Prisma 중첩 select 한 번으로 읽는다.
+ * 관계는 Prisma 중첩 select 한 번으로 읽고, 별점 요약은 aggregate 1회로 붙인다(B-19).
  */
 export async function findPublicUser(prisma, userId) {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: publicUserSelect });
   if (!user?.role) throw notFound();
-  return toPublicUser(user);
+  const agg = await prisma.review.aggregate({
+    where: { revieweeId: userId },
+    _count: { _all: true },
+    _sum: { rating: true },
+  });
+  const count = agg._count._all;
+  const dto = toPublicUser(user);
+  return {
+    ...dto,
+    ratingSummary: {
+      average: averageRating(agg._sum.rating ?? 0, count),
+      count,
+    },
+  };
 }

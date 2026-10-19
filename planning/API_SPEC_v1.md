@@ -97,13 +97,13 @@
 | 객체 | 필드 |
 |---|---|
 | `UserMe` | `id, email, name, role, profileImageUrl, bio, hasPassword, socialProviders[], clientProfile?, freelancerProfile?, profileCompletion: { isComplete, missingFields[] }` |
-| `PublicUser` | `id, name, role, profileImageUrl, bio, profileComplete, clientProfile(companyName, businessField, businessFieldEtc, websiteUrl) \| null, freelancerProfile(mainCategory, techStacks[{ id, name }], careerYears, portfolioUrl) \| null` (이메일·시간당 단가 제외, D-87. `ratingSummary: { average, count }`는 리뷰 단계 B-19에서 추가. STEP 05-C 구현 기준, §4.2) |
+| `PublicUser` | `id, name, role, profileImageUrl, bio, profileComplete, ratingSummary: { average: number \| null, count }, clientProfile(companyName, businessField, businessFieldEtc, websiteUrl) \| null, freelancerProfile(mainCategory, techStacks[{ id, name }], careerYears, portfolioUrl) \| null` (이메일·시간당 단가 제외, D-87. `average`는 리뷰 0건이면 `null`(0점 위장 없음), 있으면 소수 첫째 자리(D-22 제안). STEP 11) |
 | `ProjectSummary` | `id, title, category, budget, recruitStartDate, recruitEndDate, publicStatus, techStacks[], applicantCount, isBookmarked?, createdAt` |
 | `ProjectDetail` | `ProjectSummary + description, client(PublicUser 요약), status?(소유자만 7개 상태), myApplication?(프리랜서 본인 지원 상태)` |
 | `Application` | `id, projectId, project(요약), freelancer(PublicUser 요약), coverLetter, proposedAmount, proposedDurationDays, status, rejectReason, offerAmount, offerStatus, contractId?, createdAt` |
 | `Contract` | `id, projectId, projectTitle, agreedAmount, durationDays, terms, parties{client, freelancer}, status, displayStatus, clientSignedAt, freelancerSignedAt, signedAt, workStartedAt, delivery{note, url, requestedAt}, completedAt, availableActions[]` |
 | `Payment` | `id, contractId, orderId, amount, status, method, paidAt, escrowStatus, feeAmount, payoutAmount, releasedAt` |
-| `Review` | `id, contractId, reviewer(요약), reviewee(요약), rating, content, tags[], createdAt` |
+| `Review` | `id, contractId, projectId, projectTitle, reviewerId, revieweeId, reviewerName, rating, content, tags[], createdAt` (금액·이메일 없음. STEP 11) |
 | `Notification` | `id, type, title, message, linkUrl, projectId, applicationId, isRead, readAt, createdAt` (STEP 06-C 구현 기준, §10.1) |
 
 - `publicStatus`: 외부 노출용 3개 값 `SCHEDULED`, `RECRUITING`, `CLOSED`. 거래 단계(`CONTRACTING` 이후)는 `CLOSED`로 내려준다(A-26).
@@ -250,7 +250,7 @@
 | PROF-02 | PUT | `/users/me/client-profile` | CLIENT | A-10 | 검증 |
 | PROF-03 | PUT | `/users/me/freelancer-profile` | FREELANCER | A-11 | 검증 |
 | PROF-04 | POST | `/uploads/profile-image` | 로그인 | A-09, D-29 | 검증(로컬 저장소) |
-| PROF-05 | GET | `/users/:userId` | 공개 | A-14, B-19 | 검증(A-14). 별점·리뷰(B-19)는 설계 |
+| PROF-05 | GET | `/users/:userId` | 공개 | A-14, B-19 | 검증 (A-14 + `ratingSummary`, STEP 11) |
 | PROF-06 | GET | `/tech-stacks` | 공개 | A-11, A-12, A-21 | 검증 |
 | PROF-07 | POST | `/tech-stacks` | 로그인 | A-11 | 검증 |
 
@@ -283,7 +283,7 @@
 
 **PROF-05 공개 프로필**
 - 로그인 없이 읽는다. Access Token이 있어도 없어도(잘못된 토큰 포함) 같은 응답이다. 본인 여부·수정 가능 여부는 담지 않는다
-- 응답 200: `{ data: PublicUser }` (평균 별점·리뷰 수는 B-19에서 추가, 리뷰 목록은 `REV-03`)
+- 응답 200: `{ data: PublicUser }` (`ratingSummary` 포함. 리뷰 목록은 `REV-03`)
 - 오류: 404 `NOT_FOUND` — 없는 사용자, 역할을 고르지 않은 사용자, 숫자가 아니거나 범위(1~2147483647)를 벗어난 ID(`me` 포함)를 구분하지 않는다(D-88)
 - `Cache-Control: no-store`. DB에 쓰지 않는다(D-83과 같은 원칙)
 - 화면 주소: `/users/:userId`. 프로젝트 상세의 `client.id`로 연결한다. STEP 06 지원자 목록도 같은 응답·화면을 쓴다(D-89)
@@ -312,7 +312,7 @@
 | 8 | 입력 상한 | 미정 | 이름 50자, 자기소개 2,000자, 회사명·기타 사업 분야 100자, URL 500자(http/https만), 경력 0~80년, 기술 스택 20개, 단가 1~bigint 최대 | DB 열 길이·현실 범위(D-77) |
 | 9 | 응답 캐시 | 없음 | `/api/users` 응답에 `Cache-Control: no-store` | 개인정보 캐시 방지 |
 | 10 | 필수 프로필 검사 | `+프로필` 표기만 | `requireCompleteProfile` 미들웨어(403 `PROFILE_INCOMPLETE` + `missingFields`). 프로젝트 등록·지원 API를 만들 때 붙인다. 아직 연결된 라우트 없음 | D-78 |
-| 11 | SRCH-03 | `reviewTags` 포함 | `projectCategories`, `businessFields`만(값·한국어 이름). 리뷰 태그는 리뷰 단계에서 추가 | D-20 미확정 |
+| 11 | SRCH-03 | `reviewTags` 포함 | `projectCategories`, `businessFields`, `reviewTags: { forFreelancer[], forClient[] }` (D-20 제안 목록, STEP 11) | D-20 제안 |
 | 12 | PROF-06 검색 | 부분 일치 | 이름(대소문자 무시) 또는 정규화 이름 부분 일치. `limit` 최대 100. 기본 항목 먼저, 이름순 | `Node.js`·`nodejs` 모두 찾기 |
 | 13 | 기본 기술 스택 | 미정 | 27개 기본 항목을 멱등 시드(`npm run db:seed:tech-stacks -w apps/api`) | D-75 |
 
@@ -344,7 +344,7 @@
 | # | 항목 | 명세 | 구현 | 근거 |
 |---|---|---|---|---|
 | 1 | `PublicUser.hourlyRate` | 포함 | 제외. DB 값은 그대로이고 완성 여부 계산에만 읽는다 | D-87 |
-| 2 | `ratingSummary` | 포함 | 리뷰 테이블이 없어 아직 없음. B-19에서 추가 | 리뷰 단계 |
+| 2 | `ratingSummary` | 포함 | `{ average, count }` 포함. `average`는 0건이면 `null` (STEP 11) | B-19, D-22 |
 | 3 | `businessFieldEtc`, `profileComplete` | 없음 | 추가 | 사업 분야 '기타' 표시, 미완성 안내 |
 | 4 | 역할 없는 사용자·잘못된 ID | 404 | 없는 사용자와 같은 404 | D-88 |
 | 5 | 역할과 다른 프로필 행 | 미정 | 역할에 맞는 프로필만 싣고 다른 쪽은 `null` | 역할 변경 데이터가 남아도 섞이지 않게 |
@@ -419,7 +419,7 @@
 |---|---|---|---|---|---|
 | SRCH-01 | GET | `/projects` | 공개 | A-19~A-23, A-26 | 구현 (STEP 05-B, §6.1) |
 | SRCH-02 | GET | `/projects/:projectId/recommendations` | 공개 | A-41, D-30 | 구현 (STEP 07-A, §6.2) |
-| SRCH-03 | GET | `/meta/options` | 공개 | A-10, A-11, B-16, B-17 | 일부 검증(리뷰 태그 제외, §4.1) |
+| SRCH-03 | GET | `/meta/options` | 공개 | A-10, A-11, B-16, B-17 | 검증 (`reviewTags` 포함, STEP 11) |
 
 **SRCH-01 프로젝트 목록**
 - 쿼리
@@ -874,22 +874,23 @@ PG는 토스페이먼츠 sandbox 추천(D-16 제안). 흐름: `PAY-01` 결제 �
 
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
-| REV-01 | POST | `/contracts/:contractId/reviews` | 당사자 | B-15~B-18 | 설계 |
-| REV-02 | GET | `/contracts/:contractId/reviews` | 당사자 | B-15 | 설계 |
-| REV-03 | GET | `/users/:userId/reviews` | 공개 | B-19 | 설계 |
+| REV-01 | POST | `/contracts/:contractId/reviews` | 당사자 | B-15~B-18 | 검증 (STEP 11) |
+| REV-02 | GET | `/contracts/:contractId/reviews` | 당사자 | B-15 | 검증 (STEP 11) |
+| REV-03 | GET | `/users/:userId/reviews` | 공개 | B-19 | 검증 (STEP 11) |
 
 **REV-01 리뷰 작성**
-- 요청: `{ rating: 5, content: "...", tags: ["책임감", "소통"] }`
-- 처리: 계약 `COMPLETED` 확인, 대상(`reviewee`)은 서버가 계약의 상대방으로 결정, 태그는 작성자 역할의 태그 목록에서만 허용(D-20)
+- 요청: `{ rating: 5, content: "...", tags: ["책임감", "소통"] }` (`reviewerId`/`revieweeId`/`projectId`는 받지 않음)
+- 처리: 프로젝트·계약 `COMPLETED`, 결제 `PAID` + 에스크로 `RELEASED`, 당사자만. 대상(`reviewee`)은 서버가 계약의 상대방으로 결정. 태그는 작성자 역할 허용 목록만(D-20 제안). UNIQUE `(contract_id, reviewer_id)`로 중복·동시 요청 차단
 - 응답 201: `{ data: Review }`
-- 오류: 400(별점 범위, 허용되지 않은 태그), 404, 409 `INVALID_STATE_TRANSITION`(완료 전), 409 `ALREADY_REVIEWED`
+- 오류: 400(별점 범위, 허용되지 않은 태그), 404(비당사자·없는 계약), 409 `INVALID_STATE_TRANSITION`(미완료·미정산·취소), 409 `ALREADY_REVIEWED`
 - 수정·삭제 API는 만들지 않는다(B-18)
+- 완료·RELEASED·미작성 시 계약 `availableActions`에 `WRITE_REVIEW`
 
 **REV-02 계약의 리뷰 현황**
-- 응답 200: `{ data: { myReview: Review | null, counterpartReview: Review | null } }` (공개 시점은 D-21. 추천안은 즉시 공개)
+- 응답 200: `{ data: { myReview: Review | null, counterpartReview: Review | null } }` (작성 즉시 공개, D-21 제안)
 
 **REV-03 사용자가 받은 리뷰**
-- 쿼리: `page` → `{ data: Review[], pagination, summary: { average: 4.3, count: 12 } }` (평균은 소수 첫째 자리, D-22 제안)
+- 쿼리: `page` → `{ data: Review[], pagination, summary: { average: 4.3 \| null, count } }` (평균은 소수 첫째 자리, 0건이면 `null`, D-22 제안)
 
 ---
 

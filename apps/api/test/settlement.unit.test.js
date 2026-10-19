@@ -96,4 +96,29 @@ describe('delivery display and actions (D-124)', () => {
       }),
     ).toEqual([]);
   });
+
+  it('offers WRITE_REVIEW after completed release when not yet reviewed', () => {
+    const contract = {
+      ...base,
+      status: 'COMPLETED',
+      workStartedAt: new Date(),
+      deliveryRequestedAt: new Date(),
+    };
+    expect(
+      toAvailableActions(contract, 1, {
+        projectStatus: 'COMPLETED',
+        hasPaidPayment: true,
+        escrowStatus: 'RELEASED',
+        hasWrittenReview: false,
+      }),
+    ).toEqual(['WRITE_REVIEW']);
+    expect(
+      toAvailableActions(contract, 2, {
+        projectStatus: 'COMPLETED',
+        hasPaidPayment: true,
+        escrowStatus: 'RELEASED',
+        hasWrittenReview: true,
+      }),
+    ).toEqual([]);
+  });
 });
