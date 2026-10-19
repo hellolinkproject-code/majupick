@@ -14,13 +14,16 @@ const invalid = (message, details) =>
   new HttpError(409, 'INVALID_STATE_TRANSITION', message, details);
 const alreadySigned = () => new HttpError(409, 'ALREADY_SIGNED', '이미 전자서명한 계약입니다.');
 
-/** 화면·목록용 표시 상태. SIGNED는 결제 대기이며 작업 중이 아니다(D-13). */
+/**
+ * 화면·목록용 표시 상태.
+ * SIGNED는 기본적으로 결제 대기(D-13). 결제 후 work_started_at이 있으면 작업 중(D-122·D-124).
+ */
 export function toDisplayStatus(contract) {
   switch (contract.status) {
     case 'CANCELLED':
       return 'CANCELLED';
     case 'SIGNED':
-      return 'PAYMENT_PENDING';
+      return contract.workStartedAt ? 'IN_PROGRESS' : 'PAYMENT_PENDING';
     case 'IN_PROGRESS':
       return 'IN_PROGRESS';
     case 'DELIVERY_REQUESTED':
@@ -43,7 +46,12 @@ export function toDisplayStatus(contract) {
 /**
  * @param {object} contract
  * @param {number} viewerId
- * @param {{ projectStatus?: string, projectDeletedAt?: Date | null }} [context]
+ * @param {{
+ *   projectStatus?: string,
+ *   projectDeletedAt?: Date | null,
+ *   hasPaidPayment?: boolean,
+ *   escrowStatus?: string | null,
+ * }} [context]
  */
 export function toAvailableActions(contract, viewerId, context = {}) {
   if (context.projectStatus === 'CANCELLED' || context.projectDeletedAt) return [];
@@ -62,6 +70,26 @@ export function toAvailableActions(contract, viewerId, context = {}) {
     !context.hasPaidPayment
   ) {
     return ['PAY'];
+  }
+  // 작업 중(SIGNED|IN_PROGRESS + workStartedAt + 프로젝트 IN_PROGRESS + HELD) → 프리랜서 납품(D-124)
+  if (
+    isFreelancer &&
+    (contract.status === 'SIGNED' || contract.status === 'IN_PROGRESS') &&
+    contract.workStartedAt &&
+    context.projectStatus === 'IN_PROGRESS' &&
+    context.hasPaidPayment &&
+    context.escrowStatus === 'HELD' &&
+    !contract.deliveryRequestedAt
+  ) {
+    return ['REQUEST_DELIVERY'];
+  }
+  // 납품 요청됨 → 의뢰인 완료 승인
+  if (
+    contract.status === 'DELIVERY_REQUESTED' &&
+    isClient &&
+    context.projectStatus === 'IN_PROGRESS'
+  ) {
+    return ['APPROVE'];
   }
   return [];
 }
@@ -95,6 +123,13 @@ export function toContractDto(contract, viewerId = null, context = {}) {
     clientSignedAt: contract.clientSignedAt,
     freelancerSignedAt: contract.freelancerSignedAt,
     signedAt: contract.signedAt,
+    workStartedAt: contract.workStartedAt ?? null,
+    delivery: {
+      note: contract.deliveryNote ?? null,
+      url: contract.deliveryUrl ?? null,
+      requestedAt: contract.deliveryRequestedAt ?? null,
+    },
+    completedAt: contract.completedAt ?? null,
     isFullySigned: contract.signedAt != null && contract.status !== 'CANCELLED',
     cancelledAt: contract.cancelledAt,
     createdAt: contract.createdAt,
@@ -453,12 +488,22 @@ export function createContractService({ prisma, clock = () => new Date() }) {
     }
     const paid = await prisma.payment.findFirst({
       where: { contractId: contract.id, status: 'PAID' },
-      select: { id: true, status: true, escrowStatus: true, paidAt: true, amount: true },
+      select: {
+        id: true,
+        status: true,
+        escrowStatus: true,
+        paidAt: true,
+        amount: true,
+        feeAmount: true,
+        payoutAmount: true,
+        releasedAt: true,
+      },
     });
     const dto = toContractDto(contract, userId, {
       projectStatus: contract.project.status,
       projectDeletedAt: contract.project.deletedAt,
       hasPaidPayment: Boolean(paid),
+      escrowStatus: paid?.escrowStatus ?? null,
     });
     return {
       ...dto,
@@ -470,7 +515,13 @@ export function createContractService({ prisma, clock = () => new Date() }) {
             escrowStatus: paid.escrowStatus,
             paidAt: paid.paidAt,
             amount: paid.amount.toString(),
-            escrowNote: '테스트 결제 완료 / 에스크로 보관 시뮬레이션',
+            feeAmount: paid.feeAmount != null ? paid.feeAmount.toString() : null,
+            payoutAmount: paid.payoutAmount != null ? paid.payoutAmount.toString() : null,
+            releasedAt: paid.releasedAt,
+            escrowNote:
+              paid.escrowStatus === 'RELEASED'
+                ? '모의 지급 처리됨 (실제 송금 없음)'
+                : '테스트 결제 완료 / 에스크로 보관 시뮬레이션',
           }
         : null,
     };

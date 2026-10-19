@@ -20,7 +20,8 @@ const STACKS = [
 ];
 const BIG_BUDGET = '9007199254740993123';
 // 3단계를 모두 거치는 jsdom 흐름은 전체 테스트와 함께 돌면 기본 5초를 넘길 수 있다.
-const FUNNEL_TIMEOUT = 20_000;
+// 느린 Windows/jsdom에서는 3단계 퍼널이 20초를 넘을 수 있다.
+const FUNNEL_TIMEOUT = 60_000;
 const TODAY = todayKst();
 const addDays = (offset) => {
   const date = new Date(`${TODAY}T00:00:00.000Z`);

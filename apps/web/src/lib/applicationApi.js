@@ -79,3 +79,24 @@ export async function signContract(contractId) {
   const res = await apiClient.post(`/contracts/${contractId}/sign`, { agreed: true });
   return res.data.data;
 }
+
+/** ESC-01 프리랜서 납품 요청. */
+export async function requestDelivery(contractId, { note, url } = {}) {
+  const res = await apiClient.post(`/contracts/${contractId}/delivery`, {
+    note,
+    ...(url ? { url } : {}),
+  });
+  return res.data.data;
+}
+
+/** ESC-02 의뢰인 완료 승인 + 모의 정산. */
+export async function approveDelivery(contractId) {
+  const res = await apiClient.post(`/contracts/${contractId}/approve`);
+  return res.data.data;
+}
+
+/** ESC-03 정산 정보. */
+export async function fetchSettlement(contractId) {
+  const res = await apiClient.get(`/contracts/${contractId}/settlement`);
+  return res.data.data;
+}

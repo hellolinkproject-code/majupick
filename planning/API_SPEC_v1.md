@@ -850,13 +850,13 @@ PG는 토스페이먼츠 sandbox 추천(D-16 제안). 흐름: `PAY-01` 결제 �
 
 | ID | Method | URL | 권한 | 요구사항 | 상태 |
 |---|---|---|---|---|---|
-| ESC-01 | POST | `/contracts/:contractId/delivery` | 계약 프리랜서 | B-12 | 설계 |
-| ESC-02 | POST | `/contracts/:contractId/approve` | 계약 의뢰인 | B-13, B-14 | 설계 |
-| ESC-03 | GET | `/contracts/:contractId/settlement` | 당사자 | B-14 | 설계 |
+| ESC-01 | POST | `/contracts/:contractId/delivery` | 계약 프리랜서 | B-12 | 구현 (STEP 10-B) |
+| ESC-02 | POST | `/contracts/:contractId/approve` | 계약 의뢰인 | B-13, B-14 | 구현 (STEP 10-B) |
+| ESC-03 | GET | `/contracts/:contractId/settlement` | 당사자 | B-14 | 구현 (STEP 10-B) |
 
 **ESC-01 납품 요청**
 - 요청: `{ note, url? }`
-- 처리: 계약 `IN_PROGRESS` 확인 → `DELIVERY_REQUESTED`, 납품 정보 기록(1회, D-19 제안)
+- 처리: 작업 중 확인(D-124: 계약 `SIGNED`|`IN_PROGRESS` + `work_started_at` + 프로젝트 `IN_PROGRESS` + 결제 `PAID`/`HELD`) → `DELIVERY_REQUESTED`, 납품 정보 기록(1회, D-19)
 - 응답 200: `{ data: Contract }`. 오류: 404, 409
 
 **ESC-02 완료 승인 → 수수료 차감 지급 처리**

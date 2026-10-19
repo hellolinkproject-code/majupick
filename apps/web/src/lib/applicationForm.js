@@ -42,7 +42,7 @@ export const CONTRACT_STATUS_LABELS = Object.freeze({
   SIGNATURE_PENDING: '전자서명 대기',
   SIGNED: '서명 완료(결제 대기)',
   IN_PROGRESS: '작업 중',
-  DELIVERY_REQUESTED: '납품 요청',
+  DELIVERY_REQUESTED: '납품 확인 대기',
   COMPLETED: '완료',
   CANCELLED: '취소됨',
 });
@@ -54,7 +54,7 @@ export const CONTRACT_DISPLAY_STATUS_LABELS = Object.freeze({
   WAITING_CLIENT_SIGNATURE: '상대방(의뢰인) 서명 대기',
   PAYMENT_PENDING: '계약 체결 완료(결제 대기)',
   IN_PROGRESS: '작업 중',
-  DELIVERY_REQUESTED: '납품 요청',
+  DELIVERY_REQUESTED: '납품 확인 대기',
   COMPLETED: '완료',
   CANCELLED: '취소됨',
 });

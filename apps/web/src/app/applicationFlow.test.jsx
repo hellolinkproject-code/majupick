@@ -18,7 +18,7 @@ const addDays = (offset) => {
   return date.toISOString().slice(0, 10);
 };
 const BIG_AMOUNT = '9007199254740993123';
-const FLOW_TIMEOUT = 20_000;
+const FLOW_TIMEOUT = 60_000;
 
 const complete = { isComplete: true, missingFields: [] };
 const freelancer = {

@@ -12,7 +12,7 @@ export default defineConfig({
     include: ['test/db/**/*.test.js'],
     env: { NODE_ENV: 'test' },
     fileParallelism: false,
-    testTimeout: 20_000,
-    hookTimeout: 30_000,
+    testTimeout: 60_000,
+    hookTimeout: 120_000,
   },
 });

@@ -538,8 +538,16 @@ OpenAI 연동 코드·비용 보호(B-01). **실제 과금 HTTP는 기본 차단
 
 | ID | 주제 | RFP | 추천안 / 결정 | 대안 | 확정 시점 | 상태 |
 |---|---|---|---|---|---|---|
-| D-122 | 결제 후 계약·프로젝트 상태 | B-11, D-04 | 승인 성공 시 **프로젝트만 `IN_PROGRESS`**. **계약은 `SIGNED` 유지**(결제 대기 표기와 체결 이력을 유지). `work_started_at`만 기록. API_SPEC 초안의 "계약도 IN_PROGRESS"와 다름 → STEP 10-B 납품 전에 계약 상태를 올릴지 재검토 | 계약·프로젝트 동시 IN_PROGRESS(구 API_SPEC) | STEP 10-A | 제안 (구현) |
+| D-122 | 결제 후 계약·프로젝트 상태 | B-11, D-04 | 승인 성공 시 **프로젝트만 `IN_PROGRESS`**. **계약은 `SIGNED` 유지**(결제 대기 표기와 체결 이력을 유지). `work_started_at`만 기록. API_SPEC 초안의 "계약도 IN_PROGRESS"와 다름 → STEP 10-B에서 D-124로 재검토 완료 | 계약·프로젝트 동시 IN_PROGRESS(구 API_SPEC) | STEP 10-A | 제안 (구현) |
 | D-123 | PG 모드·Fake·모의 에스크로 | B-09, N-04, 3.6.2 | `PG_MODE=mock\|toss`(기본 mock). `TOSS_ENABLE_TEST_CALLS=false`면 Fake PG로 승인 검증. live 키(`live_*`)면 기동 거부. 시크릿은 서버만. 에스크로 `HELD`는 **시뮬레이션 문구**로 UI에 표시하고 실계좌 보관을 주장하지 않음 | 포트원, 키 없이 결제 생략 | STEP 10-A | 제안 (구현) |
+
+### 2.24 STEP 10-B에서 추가된 항목
+
+납품 요청·완료 승인·모의 에스크로 `RELEASED`·수수료 10% 정산을 구현했다. 실제 송금·환불·리뷰는 하지 않는다. D-17·D-18·D-19는 **상태를 바꾸지 않았다**(제안 유지). 아래도 **제안**.
+
+| ID | 주제 | RFP | 추천안 / 결정 | 대안 | 확정 시점 | 상태 |
+|---|---|---|---|---|---|---|
+| D-124 | 납품 전 계약 상태(D-122 재검토) | B-12, D-122 | 결제 후에도 계약 **`SIGNED` 유지**. 작업 중 판단은 `work_started_at` + 프로젝트 `IN_PROGRESS` + 결제 `PAID`/`HELD`. 납품 시 `SIGNED`(또는 `IN_PROGRESS`) → `DELIVERY_REQUESTED`. displayStatus는 `work_started_at`이 있으면 `IN_PROGRESS` | 결제 시 계약을 `IN_PROGRESS`로 올림 | STEP 10-B | 제안 (구현) |
 
 ### 4.17 STEP 10-A (2026-10-16)
 
@@ -550,3 +558,13 @@ OpenAI 연동 코드·비용 보호(B-01). **실제 과금 HTTP는 기본 차단
 | 3 | ACCEPTANCE B-09~B-11, N-04 | 설계 | Fake PG I 검증. 실제 샌드박스는 키 발급 후 | D-123 |
 | 4 | D-16, D-17 | 제안 | **변동 없음** | - |
 | 5 | D-02 | 확인 필요 | **변동 없음.** `@tosspayments/tosspayments-sdk` 추가(테스트 연동용) | - |
+
+### 4.18 STEP 10-B (2026-10-19)
+
+| # | 대상 | 이전 | 변경 | 근거 |
+|---|---|---|---|---|
+| 1 | API_SPEC ESC-01~03 | 설계 | 구현. 납품·승인·정산 조회 | B-12~B-14, D-124 |
+| 2 | ACCEPTANCE B-12~B-14 | 설계 | U·I 검증(수수료 경계값, 중복·동시성) | D-18, D-124 |
+| 3 | D-122 재검토 | 보류 | D-124로 계약 `SIGNED` 유지 + 작업 중 판단 확정 | D-122 |
+| 4 | D-17, D-18, D-19 | 제안 | **변동 없음** (Payment에 정산 필드, floor 10%, 계약서 상세 버튼) | - |
+| 5 | DB 마이그레이션 | - | **없음** (기존 contracts·payments 컬럼 사용) | ERD |

@@ -17,7 +17,7 @@ const addDays = (offset) => {
   date.setUTCDate(date.getUTCDate() + offset);
   return date.toISOString().slice(0, 10);
 };
-const FLOW_TIMEOUT = 20_000;
+const FLOW_TIMEOUT = 60_000;
 
 const baseUser = {
   email: 'user@workbridge.test',

@@ -3,6 +3,7 @@ import { createAuthenticate } from '../../middlewares/authenticate.js';
 import { createRequireRole } from '../../middlewares/requireRole.js';
 import { HttpError } from '../../utils/httpError.js';
 import { parseApplicationId } from '../applications/application.validation.js';
+import { createSettlementService } from '../settlements/settlement.service.js';
 import { createContractService } from './contract.service.js';
 import { parseContractId, parseContractListQuery } from './contract.validation.js';
 
@@ -25,10 +26,14 @@ function noStore(_req, res, next) {
  * CTR-03 GET /me/contracts
  * CTR-04 GET /contracts/:contractId
  * CTR-05 POST /contracts/:contractId/sign
+ * ESC-01 POST /contracts/:contractId/delivery
+ * ESC-02 POST /contracts/:contractId/approve
+ * ESC-03 GET /contracts/:contractId/settlement
  */
-export function createContractsRouter({ prisma, authConfig, contractService }) {
+export function createContractsRouter({ prisma, authConfig, contractService, settlementService }) {
   const router = Router();
   const service = contractService ?? createContractService({ prisma });
+  const settlements = settlementService ?? createSettlementService({ prisma });
   const authenticate = createAuthenticate(authConfig);
   const requireRole = createRequireRole(prisma);
 
@@ -90,6 +95,49 @@ export function createContractsRouter({ prisma, authConfig, contractService }) {
     async (req, res) => {
       const contractId = parseContractId(req.params.contractId);
       const data = await service.signContract(req.auth.userId, contractId, req.body);
+      res.status(200).json({ data });
+    },
+  );
+
+  router.post(
+    '/contracts/:contractId/delivery',
+    noStore,
+    authenticate,
+    requireRole,
+    onlyRole('FREELANCER', '프리랜서만 납품을 요청할 수 있습니다.'),
+    async (req, res) => {
+      const contractId = parseContractId(req.params.contractId);
+      const data = await settlements.requestDelivery(
+        req.auth.userId,
+        req.auth.role,
+        contractId,
+        req.body,
+      );
+      res.status(200).json({ data });
+    },
+  );
+
+  router.post(
+    '/contracts/:contractId/approve',
+    noStore,
+    authenticate,
+    requireRole,
+    onlyRole('CLIENT', '의뢰인만 완료를 승인할 수 있습니다.'),
+    async (req, res) => {
+      const contractId = parseContractId(req.params.contractId);
+      const data = await settlements.approveDelivery(req.auth.userId, req.auth.role, contractId);
+      res.status(200).json({ data });
+    },
+  );
+
+  router.get(
+    '/contracts/:contractId/settlement',
+    noStore,
+    authenticate,
+    requireRole,
+    async (req, res) => {
+      const contractId = parseContractId(req.params.contractId);
+      const data = await settlements.getSettlement(req.auth.userId, contractId);
       res.status(200).json({ data });
     },
   );

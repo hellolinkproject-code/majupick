@@ -22,6 +22,9 @@ export default defineConfig(({ mode }) => {
       // Parallel jsdom workers can exceed Vitest's worker start timeout on slower machines.
       fileParallelism: false,
       setupFiles: ['./src/test/setupTests.js'],
+      // Persist transforms between runs (helps slow Windows cold starts).
+      fsModuleCache: true,
+      testTimeout: 30_000,
     },
   };
 });
