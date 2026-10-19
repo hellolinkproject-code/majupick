@@ -18,9 +18,9 @@ export function fileNameFromUrl(url) {
 }
 
 /**
- * 로컬 디스크 이미지 저장소(개발용). 파일 이름은 무작위 16바이트로 만들고 원래 파일 이름은 쓰지 않는다.
+ * 로컬 디스크 이미지 저장소(개발·임시 운영). 파일 이름은 무작위 16바이트로 만들고 원래 파일 이름은 쓰지 않는다.
  * 응답에는 공개 URL(`/api/uploads/profile-images/<이름>.webp`)만 주고 서버 디렉터리 경로는 노출하지 않는다.
- * 운영 환경의 영구 저장소(D-29)는 같은 save·remove·directory 형태로 교체한다.
+ * 운영 영구 저장소(D-29·D-76)는 같은 `kind`·`save`·`remove` 형태로 교체한다.
  * @param {{ directory: string }} options
  */
 export function createLocalImageStorage({ directory }) {
@@ -45,4 +45,15 @@ export function createLocalImageStorage({ directory }) {
       await rm(path.join(root, fileName), { force: true });
     },
   };
+}
+
+/**
+ * `loadUploadConfig()` 결과에 맞는 저장소 어댑터를 만든다.
+ * @param {{ driver: string, directory: string }} uploadConfig
+ */
+export function createImageStorage(uploadConfig) {
+  if (uploadConfig.driver === 'local') {
+    return createLocalImageStorage({ directory: uploadConfig.directory });
+  }
+  throw new Error(`Unsupported STORAGE_DRIVER "${uploadConfig.driver}"`);
 }

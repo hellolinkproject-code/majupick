@@ -123,8 +123,8 @@ BE 모듈 목록: `auth`, `users`, `techStacks`, `uploads`, `projects`, `project
 | N-03 | `.env.example` | 0 | 저장소 루트·앱별 | 리뷰 | 설계 |
 | N-04 | sandbox 결제만 | 4 | payments | I: 라이브 키 형식이면 서버 기동 거부 | 구현 (STEP 10-A, `loadPgConfig`) |
 | N-05 | 본인 리소스 권한 | 1~4 | 각 service | I: 타인 리소스 접근 403/404(모듈별) | 설계 |
-| N-06 | 배포 환경 전체 시나리오 | 4 | - | E: 회원가입 → 지원 → 계약 → 결제 → 리뷰 | 설계 |
-| N-07 | FE·BE 자동 배포 | 1 | CI/CD | E: `main` 머지 → 배포, SYS-01 응답 | 설계 |
+| N-06 | 배포 환경 전체 시나리오 | 4 | - | E: 회원가입 → 지원 → 계약 → 결제 → 리뷰 | 부분 구현 (STEP 12-A: 배포 계획·체크리스트·운영 안전 설정 문서화. 배포 URL E2E는 12-B) |
+| N-07 | FE·BE 자동 배포 | 1 | CI/CD | E: `main` 머지 → 배포, SYS-01 응답 | 부분 구현 (STEP 12-A: `.github/workflows/ci.yml`·`render.yaml`·`vercel.json.example` 준비. 원격 연동·배포는 12-B) |
 | N-08 | 시연용 시드 데이터 | 2·3·4 | seed | E: 시연 계정 로그인 즉시 확인 가능 | 설계 |
 | N-09 | 다음 단계 동선 | 1~4 | FE | E: 등록 → 상세, 지원 → 내 지원 현황, 결제 → 계약서 | 설계 |
 | N-10 | 차단형 흐름 복귀 | 1·2 | FE | E: A-13과 함께 | 설계 |

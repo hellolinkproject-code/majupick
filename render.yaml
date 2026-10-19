@@ -1,0 +1,47 @@
+# Render Blueprint 초안(STEP 12-B에서 연결). 이 파일만으로 자동 배포되지 않는다.
+# Free Web Service는 유휴 15분 후 잠들며 로컬 디스크는 영구적이지 않다.
+services:
+  - type: web
+    name: workbridge-api
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: .
+    buildCommand: npm ci && npm run db:generate -w apps/api
+    startCommand: npm run start -w apps/api
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22.22.2
+      - key: HOST
+        value: 0.0.0.0
+      - key: TRUST_PROXY
+        value: 'true'
+      - key: ALLOW_REMOTE_DATABASE
+        value: 'true'
+      - key: STORAGE_DRIVER
+        value: local
+      - key: PG_MODE
+        value: mock
+      - key: TOSS_ENABLE_TEST_CALLS
+        value: 'false'
+      - key: AI_ESTIMATE_MODE
+        value: mock
+      - key: AI_ENABLE_BILLABLE_CALLS
+        value: 'false'
+      - key: AI_ESTIMATE_MONTHLY_BUDGET_USD
+        value: '0'
+      - key: RECRUIT_SYNC_INTERVAL_MS
+        value: '60000'
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        sync: false
+      - key: CORS_ORIGIN
+        sync: false
+      - key: COOKIE_SECURE
+        value: 'true'
+      - key: COOKIE_SAME_SITE
+        value: lax

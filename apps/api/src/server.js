@@ -5,7 +5,7 @@ import { DatabaseConfigError, describeDatabase, getDatabaseConfig } from './conf
 import { loadConfig } from './config/env.js';
 import { loadGoogleOAuthConfig } from './config/google.js';
 import { loadPgConfig, PgConfigError } from './config/pg.js';
-import { loadUploadConfig } from './config/uploads.js';
+import { loadUploadConfig, UploadConfigError } from './config/uploads.js';
 import { createPrismaClient } from './db/client.js';
 import {
   JobConfigError,
@@ -16,7 +16,7 @@ import { createEstimateProvider } from './modules/ai/providers/index.js';
 import { createGoogleOAuthClient } from './modules/auth/googleOAuth.js';
 import { createPgClient } from './modules/payments/pgClient.js';
 import { runRecruitStatusSync } from './modules/projects/projectClosure.js';
-import { createLocalImageStorage } from './modules/uploads/imageStorage.js';
+import { createImageStorage } from './modules/uploads/imageStorage.js';
 
 const config = loadConfig();
 
@@ -25,6 +25,7 @@ let authConfig;
 let googleConfig;
 let aiConfig;
 let pgConfig;
+let uploadConfig;
 let recruitSyncIntervalMs;
 try {
   database = getDatabaseConfig('development');
@@ -32,6 +33,7 @@ try {
   googleConfig = loadGoogleOAuthConfig(process.env, { corsOrigins: config.corsOrigins });
   aiConfig = loadAiConfig();
   pgConfig = loadPgConfig();
+  uploadConfig = loadUploadConfig();
   recruitSyncIntervalMs = parseRecruitSyncInterval(process.env.RECRUIT_SYNC_INTERVAL_MS);
 } catch (error) {
   if (
@@ -39,6 +41,7 @@ try {
     !(error instanceof AuthConfigError) &&
     !(error instanceof AiConfigError) &&
     !(error instanceof PgConfigError) &&
+    !(error instanceof UploadConfigError) &&
     !(error instanceof JobConfigError)
   ) {
     throw error;
@@ -56,12 +59,6 @@ if (authConfig.ephemeralSecret) {
 if (!googleConfig.enabled) {
   console.warn(
     '[api] Google OAuth is not configured. Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, and GOOGLE_REDIRECT_URI to enable it.',
-  );
-}
-
-if (config.nodeEnv === 'production') {
-  console.warn(
-    '[api] Profile images use local disk storage. Files are lost when the host disk is not persistent (see D-29).',
   );
 }
 
@@ -87,7 +84,12 @@ if (pgConfig.mode === 'toss' && !pgConfig.usesLiveConfirm) {
 
 const prisma = createPrismaClient({ target: 'development' });
 const googleOAuth = googleConfig.enabled ? createGoogleOAuthClient(googleConfig) : null;
-const imageStorage = createLocalImageStorage(loadUploadConfig());
+const imageStorage = createImageStorage(uploadConfig);
+if (imageStorage.kind === 'local' && config.nodeEnv === 'production') {
+  console.warn(
+    '[api] STORAGE_DRIVER=local: profile images are on ephemeral disk and are lost on redeploy/sleep (see D-76, docs/DEPLOYMENT_PLAN.md).',
+  );
+}
 const estimateProvider = createEstimateProvider(aiConfig);
 const pgClient = createPgClient(pgConfig);
 const app = createApp(config, {
@@ -101,9 +103,10 @@ const app = createApp(config, {
   pgClient,
 });
 
-const server = app.listen(config.port, () => {
-  console.log(`[api] listening on http://localhost:${config.port} (${config.nodeEnv})`);
+const server = app.listen(config.port, config.host, () => {
+  console.log(`[api] listening on http://${config.host}:${config.port} (${config.nodeEnv})`);
   console.log(`[api] database: ${describeDatabase(database)}`);
+  console.log(`[api] image storage: ${imageStorage.kind}`);
   console.log(`[api] AI estimate mode: ${aiConfig.mode}`);
   console.log(`[api] PG mode: ${pgConfig.mode} (sdk=${pgConfig.usesBrowserSdk})`);
 });

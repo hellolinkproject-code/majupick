@@ -2,7 +2,7 @@
 
 의뢰인과 프리랜서를 연결하는 프로젝트 중개 플랫폼 (코드잇 풀스택 JavaScript 과제).
 
-> 현재 단계: **상호 리뷰(STEP 11)**. 완료·모의 정산(`RELEASED`) 후 의뢰인↔프리랜서가 계약서 상세에서 리뷰 1회 작성(수정 불가). 공개 프로필에 평균 별점·리뷰 목록. 그 전 단계: 서명 → Fake/토스 테스트 결제 → 납품 → 완료 승인 → 수수료 10% 모의 정산 → `COMPLETED`. 기본 `PG_MODE=mock`, `AI_ESTIMATE_MODE=mock`. **live 키·실결제·환불·실송금·OpenAI 유료 호출 없음.**
+> 현재 단계: **배포 준비(STEP 12-A)**. STEP 11까지 상호 리뷰·모의 정산 완료. 배포 조합·환경 변수·CI·체크리스트는 [`docs/DEPLOYMENT_PLAN.md`](./docs/DEPLOYMENT_PLAN.md)·[`docs/DEPLOYMENT_CHECKLIST.md`](./docs/DEPLOYMENT_CHECKLIST.md). **실제 GitHub push·외부 배포·유료 결제·live PG·OpenAI 유료 호출은 아직 하지 않는다**(STEP 12-B 승인 후). 기본 `PG_MODE=mock`, `AI_ESTIMATE_MODE=mock`.
 > 기획·설계 문서는 [`planning/`](./planning)에 있다.
 
 ## 기술 스택
@@ -25,8 +25,11 @@ workbridge/
 │  │  ├─ prisma/      # DB 스키마(schema.prisma)와 마이그레이션 SQL
 │  │  └─ scripts/     # 로컬 DB 준비·점검 스크립트
 │  └─ web/            # React + Vite 앱 (src/app, pages, components, lib, stores)
+├─ docs/              # 배포 계획·체크리스트 (STEP 12-A)
 ├─ planning/          # 요구사항·ERD·API 명세·결정 기록
+├─ .github/workflows/ # 최소 CI (push 전 로컬 준비)
 ├─ .env.example       # 환경 변수 예시 (값은 예시만)
+├─ render.yaml        # Render Blueprint 초안 (자동 배포 아님)
 ├─ eslint.config.js
 └─ package.json       # npm workspaces 루트
 ```
@@ -59,9 +62,23 @@ npm run dev
 | `npm run test:db`                         | 실제 PostgreSQL 통합 테스트 (테스트 DB)    |
 | `npm run build`                           | 프론트엔드 프로덕션 빌드 (`apps/web/dist`) |
 
+## 배포 (STEP 12-A 준비)
+
+실제 서비스 URL·자동 배포는 STEP 12-B에서 진행한다. 지금은 구조만 확정했다.
+
+| 구성       | 추천                           | 비고                                                        |
+| ---------- | ------------------------------ | ----------------------------------------------------------- |
+| 프론트엔드 | Vercel Hobby                   | `apps/web`, `/api` → Render rewrite (`vercel.json.example`) |
+| 백엔드     | Render Free                    | Express, `PORT`·`TRUST_PROXY`, health `/api/health`         |
+| DB         | Neon Free                      | `migrate deploy`만, **reset 금지**                          |
+| 이미지     | Supabase Storage (연결은 12-B) | 지금은 `STORAGE_DRIVER=local` (재배포 시 소실)              |
+| CI         | GitHub Actions                 | `.github/workflows/ci.yml` (원격 push 전)                   |
+
+상세·환경 변수·계정 준비: [`docs/DEPLOYMENT_PLAN.md`](./docs/DEPLOYMENT_PLAN.md), [`docs/DEPLOYMENT_CHECKLIST.md`](./docs/DEPLOYMENT_CHECKLIST.md).
+
 ## 환경 변수
 
-루트의 `.env` 하나를 백엔드와 프론트엔드가 함께 읽는다. 프론트엔드에는 `VITE_`로 시작하는 변수만 노출되므로 비밀 값에는 `VITE_`를 붙이지 않는다. `.env`는 커밋하지 않는다.
+루트의 `.env` 하나를 백엔드와 프론트엔드가 함께 읽는다. 프론트엔드에는 `VITE_`로 시작하는 변수만 노출되므로 비밀 값에는 `VITE_`를 붙이지 않는다. `.env`는 커밋하지 않는다. 운영 시크릿은 호스트 대시보드에만 둔다.
 
 ### AI 단가 분석 (STEP 08-B-1)
 

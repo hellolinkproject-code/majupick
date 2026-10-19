@@ -12,7 +12,8 @@ function cookieOptions(authConfig, path, maxAge) {
   return {
     httpOnly: true,
     secure: authConfig.cookieSecure,
-    sameSite: 'lax',
+    // 기본 lax(같은 출처 rewrite·로컬). 크로스 사이트 API면 COOKIE_SAME_SITE=none + Secure.
+    sameSite: authConfig.cookieSameSite ?? 'lax',
     path,
     ...(maxAge !== undefined && { maxAge }),
   };

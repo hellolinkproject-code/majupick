@@ -28,10 +28,13 @@ function parsePositiveInt(env, key, fallback, { min = 1, max = Number.MAX_SAFE_I
   return value;
 }
 
+const SAME_SITE_VALUES = new Set(['lax', 'strict', 'none']);
+
 /**
  * @param {Record<string, string | undefined>} [env]
  * @returns {{ accessTokenSecret: string, ephemeralSecret: boolean, accessTokenTtlSeconds: number,
  *   refreshTokenTtlDays: number, bcryptRounds: number, cookieSecure: boolean,
+ *   cookieSameSite: 'lax' | 'strict' | 'none',
  *   loginRateLimit: { max: number, windowMs: number } }}
  */
 export function loadAuthConfig(env = process.env) {
@@ -59,6 +62,17 @@ export function loadAuthConfig(env = process.env) {
   }
   const cookieSecure = isProduction || cookieSecureRaw === 'true';
 
+  const sameSiteRaw = (env.COOKIE_SAME_SITE ?? 'lax').trim().toLowerCase();
+  if (!SAME_SITE_VALUES.has(sameSiteRaw)) {
+    throw new AuthConfigError('COOKIE_SAME_SITE must be "lax", "strict", or "none"');
+  }
+  /** @type {'lax' | 'strict' | 'none'} */
+  const cookieSameSite = sameSiteRaw;
+  // SameSite=None 은 브라우저가 Secure를 요구한다(크로스 사이트 쿠키).
+  if (cookieSameSite === 'none' && !cookieSecure) {
+    throw new AuthConfigError('COOKIE_SAME_SITE=none requires Secure cookies (COOKIE_SECURE=true)');
+  }
+
   return Object.freeze({
     accessTokenSecret,
     ephemeralSecret,
@@ -84,6 +98,7 @@ export function loadAuthConfig(env = process.env) {
       max: 15,
     }),
     cookieSecure,
+    cookieSameSite,
     loginRateLimit: Object.freeze({
       max: parsePositiveInt(env, 'LOGIN_RATE_LIMIT_MAX', DEFAULTS.loginRateLimitMax),
       windowMs: DEFAULTS.loginRateLimitWindowMinutes * 60 * 1000,

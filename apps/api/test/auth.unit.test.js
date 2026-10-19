@@ -30,6 +30,7 @@ describe('loadAuthConfig', () => {
       refreshTokenTtlDays: 14,
       bcryptRounds: 4,
       cookieSecure: false,
+      cookieSameSite: 'lax',
       ephemeralSecret: false,
     });
   });
@@ -43,9 +44,27 @@ describe('loadAuthConfig', () => {
     );
     const prod = loadAuthConfig({ NODE_ENV: 'production', JWT_ACCESS_SECRET: secret });
     expect(prod.cookieSecure).toBe(true);
+    expect(prod.cookieSameSite).toBe('lax');
     expect(() =>
       loadAuthConfig({ NODE_ENV: 'production', JWT_ACCESS_SECRET: secret, BCRYPT_ROUNDS: '4' }),
     ).toThrow(/BCRYPT_ROUNDS/);
+  });
+
+  it('allows SameSite=None only with Secure cookies', () => {
+    expect(() =>
+      loadAuthConfig({
+        NODE_ENV: 'development',
+        JWT_ACCESS_SECRET: secret,
+        COOKIE_SAME_SITE: 'none',
+      }),
+    ).toThrow(/COOKIE_SAME_SITE=none requires Secure/);
+    const crossSite = loadAuthConfig({
+      NODE_ENV: 'development',
+      JWT_ACCESS_SECRET: secret,
+      COOKIE_SAME_SITE: 'none',
+      COOKIE_SECURE: 'true',
+    });
+    expect(crossSite).toMatchObject({ cookieSameSite: 'none', cookieSecure: true });
   });
 
   it('generates a temporary secret in development when none is configured', () => {

@@ -1,0 +1,98 @@
+# WorkBridge 최소 CI — push/PR에서 lint·format·unit·build·DB 통합을 검사한다.
+# GitHub에 업로드·Actions 실행은 STEP 12-B(사용자 승인) 이후다. 이 파일만 로컬에 준비한다.
+name: CI
+
+on:
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: lint · format · unit · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.2'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npm run db:generate -w apps/api
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: Prettier
+        run: npm run format:check
+
+      - name: Unit tests (no DB)
+        run: npm run test
+
+      - name: Production build
+        run: npm run build
+
+      # PowerShell 스크립트 정적 검사(로컬 Windows와 동일 명령). Ubuntu runner에 pwsh 포함.
+      - name: API script static checks
+        shell: pwsh
+        run: npm run test:scripts -w apps/api
+
+  db-integration:
+    name: DB integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: workbridge_app
+          POSTGRES_PASSWORD: workbridge_ci
+          POSTGRES_DB: workbridge_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U workbridge_app -d workbridge_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NODE_ENV: test
+      DATABASE_URL: postgresql://workbridge_app:workbridge_ci@localhost:5432/workbridge_dev
+      TEST_DATABASE_URL: postgresql://workbridge_app:workbridge_ci@localhost:5432/workbridge_test
+      SHADOW_DATABASE_URL: postgresql://workbridge_app:workbridge_ci@localhost:5432/workbridge_shadow
+      ALLOW_REMOTE_DATABASE: 'false'
+      JWT_ACCESS_SECRET: ci-test-jwt-access-secret-at-least-32-chars
+      PG_MODE: mock
+      TOSS_ENABLE_TEST_CALLS: 'false'
+      AI_ESTIMATE_MODE: mock
+      AI_ENABLE_BILLABLE_CALLS: 'false'
+      AI_ESTIMATE_MONTHLY_BUDGET_USD: '0'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.22.2'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # DATABASE_URL·SHADOW_DATABASE_URL은 이름만 다르게 두고 연결하지 않는다(설정 검증용).
+      # 실제 migrate·테스트는 TEST_DATABASE_URL(workbridge_test)만 사용한다.
+      - name: Migrate test database
+        run: npm run db:migrate:test -w apps/api
+
+      - name: DB integration tests
+        run: npm run test:db

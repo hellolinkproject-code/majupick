@@ -34,6 +34,10 @@ export function createApp(
         : null;
 
   app.disable('x-powered-by');
+  // Render·Vercel 프록시 뒤에서 Secure 쿠키·클라이언트 IP가 맞게 잡히도록 한다.
+  if (config.trustProxy) {
+    app.set('trust proxy', 1);
+  }
   app.use(cors({ origin: config.corsOrigins, credentials: true }));
   app.use(express.json({ limit: '100kb' }));
 
