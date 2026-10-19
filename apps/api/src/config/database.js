@@ -90,7 +90,10 @@ export function getDatabaseConfig(target, env = process.env, { optional = false 
   if (!DATABASE_TARGETS[target])
     throw new DatabaseConfigError(`Unknown database target "${target}"`);
 
+  // 테스트 런타임에서는 개발 DB 연결을 막는다. Prisma generate/validate처럼
+  // optional이면 URL을 쓰지 않으므로 null을 돌려 설정 로딩만 허용한다(연결·migrate 아님).
   if (target === 'development' && isTestRuntime(env)) {
+    if (optional) return null;
     throw new DatabaseConfigError(
       'Tests must not use DATABASE_URL (development). Use TEST_DATABASE_URL instead.',
     );

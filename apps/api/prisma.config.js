@@ -23,7 +23,8 @@ if (target === 'test') {
   }
 }
 
-// generate·validate는 DB 없이도 동작해야 하므로 URL이 없으면 비워 둔다(값이 잘못된 경우는 오류).
+// generate·validate는 DB 없이도 동작해야 하므로 URL이 없으면 비워 둔다.
+// NODE_ENV=test 에서도 generate는 optional 개발 URL(null)을 허용하고, 연결은 TEST_DATABASE_URL만 쓴다.
 const main = getDatabaseConfig(target, process.env, { optional: true });
 const shadow =
   target === 'development' ? getDatabaseConfig('shadow', process.env, { optional: true }) : null;
