@@ -305,7 +305,7 @@ foreach ($case in $StopCases) {
 
 # ---------------------------------------------------------------------------
 Write-Host "`n[4] reset / restore 순수 함수" -ForegroundColor Cyan
-foreach ($fn in @('Get-BytesSha256', 'New-TempTrustContent', 'Remove-TempTrustBlock', 'Get-ServicePaths', 'Test-SamePath')) {
+foreach ($fn in @('Get-BytesSha256', 'New-TempTrustContent', 'Remove-TempTrustBlock', 'ConvertTo-WindowsServicePath', 'Get-ServicePaths', 'Test-SamePath')) {
   . ([scriptblock]::Create((Get-FunctionText 'reset-postgres-password.ps1' $fn)))
 }
 . ([scriptblock]::Create((Get-FunctionText 'restore-pg-hba.ps1' 'Get-RecoveryPlan')))
@@ -374,6 +374,12 @@ Test-Case '서비스 경로 파싱: 실제 PathName 형식, 경로 비교(대소
   Assert-True (Test-SamePath 'C:/Program Files/PostgreSQL/18/data/pg_hba.conf' 'C:\Program Files\PostgreSQL\18\data\pg_hba.conf') '서버가 돌려주는 / 경로'
   Assert-True (-not (Test-SamePath 'C:\Program Files\PostgreSQL\17\data' 'C:\Program Files\PostgreSQL\18\data')) '다른 버전'
   Assert-True (-not (Test-SamePath $null 'C:\x')) '빈 값'
+}
+Test-Case '서비스 경로 정규화: Windows 드라이브 경로만 백슬래시로 맞추고 POSIX 경로는 유지' {
+  Assert-Equal 'C:\Program Files\PostgreSQL\18\bin' (ConvertTo-WindowsServicePath 'C:/Program Files/PostgreSQL/18/bin') '슬래시 Windows 경로'
+  Assert-Equal 'C:\Program Files\PostgreSQL\18\bin' (ConvertTo-WindowsServicePath 'C:\Program Files\PostgreSQL\18\bin') '기존 Windows 경로'
+  Assert-Equal '/usr/lib/postgresql/18/bin' (ConvertTo-WindowsServicePath '/usr/lib/postgresql/18/bin') 'POSIX 경로'
+  Assert-Equal '/opt/postgresql/bin' (ConvertTo-WindowsServicePath '/opt/postgresql/bin') '다른 POSIX 경로'
 }
 
 # ---------------------------------------------------------------------------

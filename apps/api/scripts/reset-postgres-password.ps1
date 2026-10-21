@@ -98,13 +98,21 @@ function Remove-TempTrustBlock([byte[]]$Bytes) {
   return @{ Status = 'removed'; Bytes = [byte[]]$latin1.GetBytes($result); Removed = $removed }
 }
 
+# Linux pwsh의 Split-Path는 드라이브 경로의 '\'만 '/'로 바꾼다.
+# 드라이브 문자로 시작하는 Windows 경로만 되돌린다. '/'로 시작하는 POSIX 경로는 그대로 둔다.
+function ConvertTo-WindowsServicePath([string]$Path) {
+  if (-not $Path) { return $Path }
+  if ($Path -match '^[A-Za-z]:') { return ($Path -replace '/', '\') }
+  return $Path
+}
+
 function Get-ServicePaths([string]$PathName) {
   $exe = $null
   $data = $null
   if ($PathName -match '^\s*"([^"]+)"') { $exe = $Matches[1] } elseif ($PathName -match '^\s*(\S+)') { $exe = $Matches[1] }
   if ($PathName -match '\s-D\s+"([^"]+)"') { $data = $Matches[1] } elseif ($PathName -match '\s-D\s+([^\s"]+)') { $data = $Matches[1] }
   $bin = $null
-  if ($exe) { $bin = Split-Path -Parent $exe }
+  if ($exe) { $bin = ConvertTo-WindowsServicePath (Split-Path -Parent $exe) }
   return @{ BinDir = $bin; DataDir = $data }
 }
 
