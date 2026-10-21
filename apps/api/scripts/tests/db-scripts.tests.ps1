@@ -305,7 +305,7 @@ foreach ($case in $StopCases) {
 
 # ---------------------------------------------------------------------------
 Write-Host "`n[4] reset / restore 순수 함수" -ForegroundColor Cyan
-foreach ($fn in @('Get-BytesSha256', 'New-TempTrustContent', 'Remove-TempTrustBlock', 'ConvertTo-WindowsServicePath', 'Get-ServicePaths', 'Test-SamePath')) {
+foreach ($fn in @('Get-BytesSha256', 'New-TempTrustContent', 'Remove-TempTrustBlock', 'ConvertTo-WindowsServicePath', 'Test-WindowsAbsolutePath', 'ConvertTo-WindowsComparablePath', 'Get-ServicePaths', 'Test-SamePath')) {
   . ([scriptblock]::Create((Get-FunctionText 'reset-postgres-password.ps1' $fn)))
 }
 . ([scriptblock]::Create((Get-FunctionText 'restore-pg-hba.ps1' 'Get-RecoveryPlan')))
@@ -380,6 +380,26 @@ Test-Case '서비스 경로 정규화: Windows 드라이브 경로만 백슬래�
   Assert-Equal 'C:\Program Files\PostgreSQL\18\bin' (ConvertTo-WindowsServicePath 'C:\Program Files\PostgreSQL\18\bin') '기존 Windows 경로'
   Assert-Equal '/usr/lib/postgresql/18/bin' (ConvertTo-WindowsServicePath '/usr/lib/postgresql/18/bin') 'POSIX 경로'
   Assert-Equal '/opt/postgresql/bin' (ConvertTo-WindowsServicePath '/opt/postgresql/bin') '다른 POSIX 경로'
+}
+Test-Case '서비스 경로 비교: Windows 구분자·정규화와 POSIX 구분' {
+  Assert-True (Test-SamePath 'C:\Program Files\PostgreSQL\18\data\pg_hba.conf' 'C:/Program Files/PostgreSQL/18/data/pg_hba.conf') '슬래시 혼용'
+  Assert-True (Test-SamePath 'C:\Program Files\PostgreSQL\18\DATA' 'c:/program files/postgresql/18/data/') '대소문자·끝 구분자'
+  Assert-True (Test-SamePath 'C:\' 'C:/') '드라이브 루트'
+  Assert-True (-not (Test-SamePath 'C:\data' 'D:\data')) '다른 드라이브'
+  Assert-True (-not (Test-SamePath 'C:\Program Files\PostgreSQL\18\data\pg_hba.conf' 'C:\Program Files\PostgreSQL\18\data\postgresql.conf')) '다른 파일'
+  Assert-True (-not (Test-SamePath 'C:\Program Files\PostgreSQL\18\data' 'C:\Program Files\PostgreSQL\18\database')) '접두어가 비슷한 다른 디렉터리'
+  Assert-True (Test-SamePath 'C:\Program Files\PostgreSQL\18\data\.\pg_hba.conf' 'C:\Program Files\PostgreSQL\18\data\pg_hba.conf') '현재 디렉터리 요소'
+  Assert-True (Test-SamePath 'C:\Program Files\PostgreSQL\18\data\..\data' 'C:\Program Files\PostgreSQL\18\data') '상위 요소'
+  Assert-True (Test-SamePath 'C:\Program Files\PostgreSQL\18\..\17\data' 'C:\Program Files\PostgreSQL\17\data') '상위 이후 다른 버전'
+  Assert-True (-not (Test-SamePath 'C:\Program Files\PostgreSQL\18\data\..\..\..\Windows' 'C:\Program Files\PostgreSQL\18\data')) '루트를 넘는 .. 는 다른 디렉터리'
+  Assert-True (Test-SamePath '\\server\share\data\' '//server/share/data') 'UNC 구분자'
+  Assert-True (-not (Test-SamePath '\\server\share\data' '\\server\other\data')) '다른 UNC 공유'
+  Assert-True (Test-SamePath '\\server\share\..\data' '\\server\data') 'UNC 공유 이름 정규화'
+  Assert-True (Test-SamePath '/usr/lib/postgresql/18/bin' '/usr/lib/postgresql/18/bin/') 'POSIX 끝 구분자'
+  Assert-True (Test-SamePath '/usr/lib/postgresql/18/bin/../bin' '/usr/lib/postgresql/18/bin') 'POSIX ..'
+  Assert-True (-not (Test-SamePath '/usr/lib/postgresql/18/bin' '/usr/lib/postgresql/17/bin')) '다른 POSIX 디렉터리'
+  Assert-True (-not (Test-SamePath 'C:\usr\lib\postgresql\18\bin' '/usr/lib/postgresql/18/bin')) 'Windows와 POSIX 절대 경로'
+  Assert-True (-not (Test-SamePath 'C:\' 'C:')) '드라이브 상대 경로와 루트'
 }
 
 # ---------------------------------------------------------------------------
