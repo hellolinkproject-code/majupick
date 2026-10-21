@@ -98,21 +98,78 @@ function Remove-TempTrustBlock([byte[]]$Bytes) {
   return @{ Status = 'removed'; Bytes = [byte[]]$latin1.GetBytes($result); Removed = $removed }
 }
 
+# Linux pwsh의 Split-Path는 드라이브 경로의 '\'만 '/'로 바꾼다.
+# 드라이브 문자로 시작하는 Windows 경로만 되돌린다. '/'로 시작하는 POSIX 경로는 그대로 둔다.
+function ConvertTo-WindowsServicePath([string]$Path) {
+  if (-not $Path) { return $Path }
+  if ($Path -match '^[A-Za-z]:') { return ($Path -replace '/', '\') }
+  return $Path
+}
+
 function Get-ServicePaths([string]$PathName) {
   $exe = $null
   $data = $null
   if ($PathName -match '^\s*"([^"]+)"') { $exe = $Matches[1] } elseif ($PathName -match '^\s*(\S+)') { $exe = $Matches[1] }
   if ($PathName -match '\s-D\s+"([^"]+)"') { $data = $Matches[1] } elseif ($PathName -match '\s-D\s+([^\s"]+)') { $data = $Matches[1] }
   $bin = $null
-  if ($exe) { $bin = Split-Path -Parent $exe }
+  if ($exe) { $bin = ConvertTo-WindowsServicePath (Split-Path -Parent $exe) }
   return @{ BinDir = $bin; DataDir = $data }
+}
+
+# 드라이브 경로(C:\...)와 UNC(\server\share, //server/share)만 Windows 절대 경로다.
+# /usr 같은 POSIX 절대 경로와 C:foo 같은 드라이브 상대 경로는 포함하지 않는다.
+function Test-WindowsAbsolutePath([string]$Path) {
+  if ($Path -match '^[A-Za-z]:[\\/]') { return $true }
+  if ($Path -match '^\\\\[^\\/]') { return $true }
+  if ($Path -match '^//[^/]') { return $true }
+  return $false
+}
+
+# Windows 절대 경로를 드라이브·서버 경계를 넘지 않게 정규화한다. 불완전한 UNC는 $null.
+function ConvertTo-WindowsComparablePath([string]$Path) {
+  $text = $Path -replace '/', '\'
+  $isUnc = $text.StartsWith('\\')
+  $body = if ($isUnc) { $text.Substring(2) } else { $text }
+  $stack = New-Object System.Collections.Generic.List[string]
+  foreach ($part in ($body -split '\\')) {
+    if ($part -eq '' -or $part -eq '.') { continue }
+    if ($part -eq '..') {
+      if ($stack.Count -eq 0) { throw '잘못된 Windows 경로입니다.' }
+      if ($stack.Count -gt 1) { $stack.RemoveAt($stack.Count - 1) }
+      continue
+    }
+    if (-not $isUnc -and $stack.Count -eq 0) {
+      if ($part -notmatch '^[A-Za-z]:$') { throw '잘못된 Windows 경로입니다.' }
+      $stack.Add($part) | Out-Null
+      continue
+    }
+    if ($part -match '[<>:"|?*]') { throw '잘못된 Windows 경로입니다.' }
+    $stack.Add($part) | Out-Null
+  }
+  if ($isUnc) {
+    if ($stack.Count -lt 2) { return $null }
+    return '\\' + ($stack -join '\')
+  }
+  if ($stack.Count -lt 1) { return $null }
+  if ($stack.Count -eq 1) { return ($stack[0] + '\') }
+  return ($stack -join '\')
 }
 
 function Test-SamePath([string]$A, [string]$B) {
   if (-not $A -or -not $B) { return $false }
-  $left = [IO.Path]::GetFullPath($A).TrimEnd('\', '/')
-  $right = [IO.Path]::GetFullPath($B).TrimEnd('\', '/')
-  return [string]::Equals($left, $right, [StringComparison]::OrdinalIgnoreCase)
+  $aWindows = Test-WindowsAbsolutePath $A
+  $bWindows = Test-WindowsAbsolutePath $B
+  # Windows 절대 경로와 POSIX·상대 경로를 같은 디렉터리로 보지 않는다.
+  if ($aWindows -ne $bWindows) { return $false }
+  if ($aWindows) {
+    $left = ConvertTo-WindowsComparablePath $A
+    $right = ConvertTo-WindowsComparablePath $B
+    if (-not $left -or -not $right) { return $false }
+    return [string]::Equals($left, $right, [StringComparison]::OrdinalIgnoreCase)
+  }
+  $leftNative = [IO.Path]::GetFullPath($A).TrimEnd('\', '/')
+  $rightNative = [IO.Path]::GetFullPath($B).TrimEnd('\', '/')
+  return [string]::Equals($leftNative, $rightNative, [StringComparison]::OrdinalIgnoreCase)
 }
 
 function Test-ServerReady([string]$PgIsReadyPath, [string]$HostAddress, [int]$PortNumber) {

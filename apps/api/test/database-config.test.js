@@ -52,6 +52,10 @@ describe('getDatabaseConfig', () => {
     expect(() => getDatabaseConfig('development', { ...base, NODE_ENV: 'test' })).toThrow(
       /Tests must not use DATABASE_URL/,
     );
+    // Prisma generate는 URL이 필수가 아니므로 optional이면 연결 없이 null만 허용한다.
+    expect(
+      getDatabaseConfig('development', { ...base, NODE_ENV: 'test' }, { optional: true }),
+    ).toBe(null);
     expect(getDatabaseConfig('test', { ...base, NODE_ENV: 'test' }).database).toBe(
       'workbridge_test',
     );
