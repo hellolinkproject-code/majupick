@@ -154,7 +154,9 @@ export function Layout() {
           <Link to="/" className="layout__logo">
             WorkBridge
           </Link>
-          <span className="layout__badge">개발 환경</span>
+          {import.meta.env.MODE !== 'production' ? (
+            <span className="layout__badge">개발 환경</span>
+          ) : null}
           <div className="layout__quick">
             {signedIn && user.role && <NotificationBell userId={user.id} />}
             <button

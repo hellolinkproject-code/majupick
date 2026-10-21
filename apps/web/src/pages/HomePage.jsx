@@ -77,25 +77,29 @@ export function HomePage() {
 
       <HomeSearch />
 
-      <h2>개발 환경 확인</h2>
-      <dl className="checklist">
-        <div>
-          <dt>프론트엔드</dt>
-          <dd>
-            <span className="status status--ok">React + Vite 실행 중</span>
-          </dd>
-        </div>
-        <div>
-          <dt>백엔드 API (GET /api/health)</dt>
-          <dd>
-            <ApiStatus />
-          </dd>
-        </div>
-        <div>
-          <dt>세션 상태 (Zustand)</dt>
-          <dd>{isLoggedIn ? '로그인됨' : '로그인 전'}</dd>
-        </div>
-      </dl>
+      {import.meta.env.MODE !== 'production' ? (
+        <>
+          <h2>개발 환경 확인</h2>
+          <dl className="checklist">
+            <div>
+              <dt>프론트엔드</dt>
+              <dd>
+                <span className="status status--ok">React + Vite 실행 중</span>
+              </dd>
+            </div>
+            <div>
+              <dt>백엔드 API (GET /api/health)</dt>
+              <dd>
+                <ApiStatus />
+              </dd>
+            </div>
+            <div>
+              <dt>세션 상태 (Zustand)</dt>
+              <dd>{isLoggedIn ? '로그인됨' : '로그인 전'}</dd>
+            </div>
+          </dl>
+        </>
+      ) : null}
     </section>
   );
 }
