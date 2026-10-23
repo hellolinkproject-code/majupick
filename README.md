@@ -2,8 +2,53 @@
 
 의뢰인과 프리랜서를 연결하는 프로젝트 중개 플랫폼 (코드잇 풀스택 JavaScript 과제).
 
-> 현재 단계: **배포 준비(STEP 12-A)**. STEP 11까지 상호 리뷰·모의 정산 완료. 배포 조합·환경 변수·CI·체크리스트는 [`docs/DEPLOYMENT_PLAN.md`](./docs/DEPLOYMENT_PLAN.md)·[`docs/DEPLOYMENT_CHECKLIST.md`](./docs/DEPLOYMENT_CHECKLIST.md). **실제 GitHub push·외부 배포·유료 결제·live PG·OpenAI 유료 호출은 아직 하지 않는다**(STEP 12-B 승인 후). 기본 `PG_MODE=mock`, `AI_ESTIMATE_MODE=mock`.
-> 기획·설계 문서는 [`planning/`](./planning)에 있다.
+> 현재 단계: **운영 배포 완료**. 웹·API·Neon PostgreSQL이 연결되어 있고, 운영 환경에서 종단간 Mock 거래 시나리오 검증을 마쳤다. Google 로그인, 토스 샌드박스 실호출, OpenAI 유료 호출은 켜 두지 않았다. 설계 기록은 [`docs/DEPLOYMENT_PLAN.md`](./docs/DEPLOYMENT_PLAN.md)·[`docs/DEPLOYMENT_CHECKLIST.md`](./docs/DEPLOYMENT_CHECKLIST.md).
+> 기획·설계 문서는 [`planning/`](./planning)에 있다. ERD 원본은 [`planning/ERD_v1.md`](./planning/ERD_v1.md), API 명세 원본은 [`planning/API_SPEC_v1.md`](./planning/API_SPEC_v1.md).
+
+## 운영 현황
+
+| 구성         | 주소·서비스                                           |
+| ------------ | ----------------------------------------------------- |
+| 웹           | <https://workbridge-web-gray.vercel.app>              |
+| API          | <https://workbridge-api-k2rf.onrender.com>            |
+| 데이터베이스 | Neon PostgreSQL                                       |
+| 소스         | <https://github.com/hellolinkproject-code/workbridge> |
+
+운영에서 확인한 범위는 Mock 결제와 모의 정산이 포함된 종단간 거래 시나리오다.
+
+### 구현된 기능
+
+- 이메일 회원가입·로그인, 역할별 프로필과 공개 프로필
+- 프로젝트 등록·검색·지원·선정, 모집 마감·취소
+- 합의 금액, 계약서 체크박스 전자서명
+- 테스트 결제(Fake PG), 납품, 모의 정산(수수료 10%), 상호 리뷰
+- 알림, 북마크, 규칙 기반 추천
+- AI 단가 분석은 Mock 모드(외부 호출 없음)
+
+경로·권한·요청 본문은 아래 절과 [`planning/API_SPEC_v1.md`](./planning/API_SPEC_v1.md)에 둔다. 데이터 모델은 [`planning/ERD_v1.md`](./planning/ERD_v1.md).
+
+### 배포 아키텍처
+
+```text
+브라우저
+  └─ https://workbridge-web-gray.vercel.app          Vercel, apps/web
+        ├─ /           Vite SPA
+        └─ /api/*      rewrite → https://workbridge-api-k2rf.onrender.com/api/*
+                          ├─ Render Express + Prisma
+                          ├─ Neon PostgreSQL
+                          └─ 프로필 이미지: 인스턴스 로컬 디스크
+```
+
+브라우저는 Vercel의 `/api` rewrite로 API를 같은 출처에서 호출한다. CI는 GitHub Actions(`.github/workflows/ci.yml`)가 `main`과 `feat/**`·`fix/**` push, 그리고 `main`으로의 PR에서 lint·format·unit·build·DB 통합을 실행한다.
+
+### 운영에서 아직 아닌 것
+
+| 항목          | 현재                                                                                                                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Google OAuth  | **미활성화.** 운영에 `GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET`·`GOOGLE_REDIRECT_URI`를 넣지 않았다. 로그인 화면은 설정 안내를 보여 준다. 로컬에서 켜는 절차는 [Google Cloud 설정](#google-cloud-설정). |
+| 토스 샌드박스 | **실제 HTTP 미검증.** 운영은 `PG_MODE=mock`(Fake PG)이다. `live_*` 키는 서버가 기동을 거부한다.                                                                                                        |
+| AI 단가 분석  | **Mock 모드.** `AI_ESTIMATE_MODE=mock`, `AI_ENABLE_BILLABLE_CALLS=false`, 월 예산 0. 외부 호출과 과금은 하지 않는다.                                                                                   |
+| 프로필 이미지 | **로컬 디스크.** `STORAGE_DRIVER=local`. Render 무료 인스턴스의 디스크는 재배포·재시작·유휴 후 재기동 때 비워질 수 있다. Supabase Storage 등 영구 저장소는 연결하지 않았다.                            |
 
 ## 기술 스택
 
@@ -11,7 +56,7 @@
 | ------------ | --------------------------------------------------------- |
 | 프론트엔드   | React, Vite, React Router, Axios, TanStack Query, Zustand |
 | 백엔드       | Node.js, Express, JavaScript, REST API                    |
-| 데이터베이스 | PostgreSQL 18 (로컬), Prisma 7                            |
+| 데이터베이스 | PostgreSQL 18 (로컬), Neon (운영), Prisma 7               |
 | 개발 도구    | npm workspaces, ESLint, Prettier, Vitest                  |
 
 > RFP가 언급한 "고정 기술 스택" 목록은 아직 운영진 확인 전이다(`planning/DECISIONS.md` D-02). 위 구성은 잠정안이다.
@@ -25,11 +70,11 @@ workbridge/
 │  │  ├─ prisma/      # DB 스키마(schema.prisma)와 마이그레이션 SQL
 │  │  └─ scripts/     # 로컬 DB 준비·점검 스크립트
 │  └─ web/            # React + Vite 앱 (src/app, pages, components, lib, stores)
-├─ docs/              # 배포 계획·체크리스트 (STEP 12-A)
+├─ docs/              # 배포 계획·체크리스트 (설계 기록)
 ├─ planning/          # 요구사항·ERD·API 명세·결정 기록
-├─ .github/workflows/ # 최소 CI (push 전 로컬 준비)
+├─ .github/workflows/ # GitHub Actions CI (push·PR)
 ├─ .env.example       # 환경 변수 예시 (값은 예시만)
-├─ render.yaml        # Render Blueprint 초안 (자동 배포 아님)
+├─ render.yaml        # Render Blueprint 초안 (운영 서비스와 별개)
 ├─ eslint.config.js
 └─ package.json       # npm workspaces 루트
 ```
@@ -62,19 +107,19 @@ npm run dev
 | `npm run test:db`                         | 실제 PostgreSQL 통합 테스트 (테스트 DB)    |
 | `npm run build`                           | 프론트엔드 프로덕션 빌드 (`apps/web/dist`) |
 
-## 배포 (STEP 12-A 준비)
+## 배포
 
-실제 서비스 URL·자동 배포는 STEP 12-B에서 진행한다. 지금은 구조만 확정했다.
+운영 URL과 한계는 [운영 현황](#운영-현황)에 있다. 구성은 아래와 같다.
 
-| 구성       | 추천                           | 비고                                                        |
-| ---------- | ------------------------------ | ----------------------------------------------------------- |
-| 프론트엔드 | Vercel Hobby                   | `apps/web`, `/api` → Render rewrite (`vercel.json.example`) |
-| 백엔드     | Render Free                    | Express, `PORT`·`TRUST_PROXY`, health `/api/health`         |
-| DB         | Neon Free                      | `migrate deploy`만, **reset 금지**                          |
-| 이미지     | Supabase Storage (연결은 12-B) | 지금은 `STORAGE_DRIVER=local` (재배포 시 소실)              |
-| CI         | GitHub Actions                 | `.github/workflows/ci.yml` (원격 push 전)                   |
+| 구성       | 운영            | 비고                                                        |
+| ---------- | --------------- | ----------------------------------------------------------- |
+| 프론트엔드 | Vercel Hobby    | `apps/web`, `/api` → Render rewrite (`vercel.json.example`) |
+| 백엔드     | Render Free     | Express, `PORT`·`TRUST_PROXY`, health `/api/health`         |
+| DB         | Neon PostgreSQL | `migrate deploy`만, **reset 금지**                          |
+| 이미지     | 로컬 디스크     | `STORAGE_DRIVER=local`. 재배포·재시작 시 소실될 수 있음     |
+| CI         | GitHub Actions  | `.github/workflows/ci.yml`                                  |
 
-상세·환경 변수·계정 준비: [`docs/DEPLOYMENT_PLAN.md`](./docs/DEPLOYMENT_PLAN.md), [`docs/DEPLOYMENT_CHECKLIST.md`](./docs/DEPLOYMENT_CHECKLIST.md).
+설계 당시의 환경 변수·계정 메모: [`docs/DEPLOYMENT_PLAN.md`](./docs/DEPLOYMENT_PLAN.md), [`docs/DEPLOYMENT_CHECKLIST.md`](./docs/DEPLOYMENT_CHECKLIST.md). 그 문서의 "배포 미실행" 서술은 배포 전에 작성된 기록이다.
 
 ## 환경 변수
 
@@ -90,18 +135,17 @@ npm run dev
 | 실제 과금 호출     | **미검증·기본 차단.** `AI_ENABLE_BILLABLE_CALLS=false`, `AI_ESTIMATE_MONTHLY_BUDGET_USD=0`    |
 | 사용량·예산        | PostgreSQL `ai_usage_ledger`·`ai_budget_months`(micro-USD). Fake 경로에서 예약·정산·경합 검증 |
 
-실호출을 켜려면(이 저장소에서는 직접 활성화하지 않음):
+실호출을 켜려면(운영에서는 켜 두지 않음):
 
 1. 서버에만 `OPENAI_API_KEY` 설정(브라우저·`VITE_` 금지)
-2. `OPENAI_MODEL=gpt-6-luna`(또는 단가 변수를 채운 다른 모델)
+2. `OPENAI_MODEL`에는 해당 계정에서 지원하는 모델을 넣는다. 이름과 단가(`AI_OPENAI_INPUT_USD_PER_1M`, `AI_OPENAI_OUTPUT_USD_PER_1M`)는 공급자 문서로 확인한다. 지원 여부를 확인하지 않은 모델 이름은 적지 않는다.
 3. `AI_ESTIMATE_MODE=openai`
 4. `AI_ESTIMATE_MONTHLY_BUDGET_USD`를 0보다 큰 소액으로
 5. `AI_ENABLE_BILLABLE_CALLS=true`
-6. 사용자 승인 후 STEP 08-B-2에서 소액 검증
 
 ## 데이터베이스 (로컬 PostgreSQL)
 
-WorkBridge는 내 PC에 설치된 PostgreSQL 18을 쓴다. 용도별로 DB 3개를 나눠 쓰고, 모두 WorkBridge 전용 계정 `workbridge_app`이 소유한다. 이 계정에는 관리자 권한이 없다.
+개발은 내 PC에 설치된 PostgreSQL 18을 쓴다. 운영 데이터는 Neon PostgreSQL에 있다. 아래 절차는 로컬 개발용이며, 운영 DB에는 실행하지 않는다. 용도별로 DB 3개를 나눠 쓰고, 모두 WorkBridge 전용 계정 `workbridge_app`이 소유한다. 이 계정에는 관리자 권한이 없다.
 
 | DB                  | 용도                                                | `.env` 변수           |
 | ------------------- | --------------------------------------------------- | --------------------- |
@@ -182,6 +226,8 @@ npm run db:seed:tech-stacks -w apps/api # 기본 기술 스택 27개(여러 번 
 
 ### Google Cloud 설정
 
+운영 사이트에서는 Google OAuth가 **미활성화**다. 세 환경 변수를 넣지 않았고, 로그인 화면은 설정 안내를 보여 준다. 아래는 로컬에서 켤 때의 절차다.
+
 Google 로그인 버튼은 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`가 모두 있을 때만 동작한다. 없으면 로그인 화면에 설정 안내가 나오고, 임의의 키를 만들어 두지 않는다. Client Secret은 `.env`에만 두고 Git에 커밋하지 않는다.
 
 1. [Google Cloud Console](https://console.cloud.google.com/)에서 프로젝트를 만들거나 고른다.
@@ -222,7 +268,7 @@ Google 로그인 버튼은 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_R
 - 저장 대상은 항상 로그인한 사용자다. 다른 역할의 프로필은 403 `FORBIDDEN`, 역할을 고르지 않은 사용자는 403 `ROLE_REQUIRED`.
 - 시간당 단가는 DB `bigint`라 문자열로 주고받는다(예: `"50000"`).
 - 프로필 이미지는 JPG·PNG·WebP만 받는다. 서버가 실제 내용을 확인하고 512px 이하 WebP로 다시 저장하며(위치 정보 등 메타데이터 제거), 파일 이름은 무작위로 만든다. SVG나 이미지로 위장한 파일은 거부한다.
-- **이미지 저장 위치:** 지금은 로컬 폴더 `apps/api/uploads/profile-images`(Git 제외, `UPLOAD_DIR`로 변경). 무료 호스팅의 디스크는 재배포 때 지워지므로, 배포 전에 영구 저장소(Supabase Storage 등)를 비용 확인 후 정해야 한다(`planning/DECISIONS.md` D-76).
+- **이미지 저장 위치:** 로컬 폴더 `apps/api/uploads/profile-images`(Git 제외, `UPLOAD_DIR`로 변경). 운영도 `STORAGE_DRIVER=local`이다. Render 무료 인스턴스 디스크는 재배포·재시작·유휴 후 재기동 때 비워질 수 있어, 그 사이 올린 프로필 이미지는 사라질 수 있다. Supabase Storage 등 영구 저장소는 연결하지 않았다(`planning/DECISIONS.md` D-76).
 - 기술 스택 기본 선택지는 `npm run db:seed:tech-stacks -w apps/api`로 넣는다.
 - 상세 명세와 정책 근거: `planning/API_SPEC_v1.md` §4·§4.1, `planning/DECISIONS.md` D-75~D-78.
 
@@ -329,7 +375,7 @@ Google 로그인 버튼은 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_R
   - API 서버(`npm run dev:api`, `npm start -w apps/api`)가 켜져 있으면 서버 안에서 **시작 즉시 1회 + `RECRUIT_SYNC_INTERVAL_MS`(기본 60000ms = 1분)마다** 실행한다. 서버가 꺼져 있던 동안 지난 마감은 다시 켤 때 처리된다. 실행이 겹치면 건너뛴다. 프로젝트마다 별도 트랜잭션이라 한 건이 실패해도 나머지는 처리되고, 실패한 건은 다음 실행에서 다시 시도한다.
   - `RECRUIT_SYNC_INTERVAL_MS`: 비우면 60000, `0`이면 서버 안 작업을 끈다. 5000~86400000(ms)만 허용한다.
   - 서버 밖에서 한 번 실행: `npm run job:sync-project-status -w apps/api`(개발 DB) 또는 `... -- --target=test`(테스트 DB). 결과를 JSON으로 출력하고, 실패한 프로젝트가 있으면 종료 코드 1. 여러 번·동시에 실행해도 결과는 같다.
-- 배포 시: 현재 배포 환경이 없어 운영 스케줄러는 설치하지 않았다. 서버가 잠들 수 있는 호스팅(무료 플랜 등)에서는 서버 안 작업이 멈추므로, 호스팅의 cron/스케줄러에서 위 명령을 주기적으로 실행하도록 연결해야 한다(D-99 제안).
+- 운영 API(Render)는 프로세스가 깨어 있는 동안 같은 간격으로 이 작업을 실행한다. 무료 플랜은 유휴 시 잠들 수 있고, 그 사이에는 돌지 않는다. 다시 깨어나면 서버 시작 시점의 1회 실행이 밀린 마감을 처리한다. 별도의 외부 cron은 연결하지 않았다(D-99 제안).
 - 상세 명세와 정책 근거: `planning/API_SPEC_v1.md` §9·§9.1, `planning/DECISIONS.md` D-99~D-102(모두 제안).
 
 ## 결제 (PG 샌드박스 / Fake)
@@ -343,7 +389,7 @@ Google 로그인 버튼은 `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_R
 | `GET /api/payments/:paymentId`             | 결제자 또는 계약 프리랜서 | 결제 상세(PAY-05)                                            |
 
 - 화면: 계약서 **테스트 결제** → `/contracts/:id/pay` → 성공 `/payments/success`·실패 `/payments/fail` → **내 결제**(`/me/payments`).
-- 기본 `PG_MODE=mock`(Fake PG). 토스 테스트 키 + `TOSS_ENABLE_TEST_CALLS=true`일 때만 샌드박스 HTTP. `live_*` 키는 서버 기동 거부(N-04).
+- 기본 `PG_MODE=mock`(Fake PG). 운영에서 검증한 결제는 이 Mock 경로다. 토스 테스트 키 + `TOSS_ENABLE_TEST_CALLS=true`일 때만 샌드박스 HTTP를 호출하는 코드가 있으나, **실제 토스 샌드박스 호출은 검증하지 않았다.** `live_*` 키는 서버 기동 거부(N-04).
 - UI·DTO에 "테스트 결제 완료 / 에스크로 보관 시뮬레이션"을 표시한다. 실계좌 보관·환불·송금은 없다(D-123).
 - 상세: `planning/API_SPEC_v1.md` §11, `planning/DECISIONS.md` D-122·D-123.
 
