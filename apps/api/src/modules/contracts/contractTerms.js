@@ -18,7 +18,7 @@ function formatWon(amount) {
 export function buildContractTerms(input) {
   const company = input.client.companyName?.trim() ? ` (${input.client.companyName.trim()})` : '';
   return [
-    'WorkBridge 용역 계약서(자동 생성)',
+    '마주픽 용역 계약서(자동 생성)',
     '',
     `1. 프로젝트명: ${input.projectTitle}`,
     `2. 의뢰인: ${input.client.name}${company}`,

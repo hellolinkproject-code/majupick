@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { parseApiError, selectRole } from '../lib/authApi.js';
 import { safeReturnTo } from '../lib/returnTo.js';
 import { useSessionStore } from '../stores/useSessionStore.js';
+import { BRAND_NAME_KO } from '../lib/brand.js';
 
 const ROLE_OPTIONS = [
   { value: 'CLIENT', label: '의뢰인', description: '프로젝트를 등록하고 프리랜서를 찾습니다' },
@@ -54,7 +55,7 @@ export function SelectRolePage() {
     <section className="auth-card">
       <h1>역할 선택</h1>
       <p className="profile__note">
-        WorkBridge에서 어떻게 사용할지 선택해 주세요. 나중에 바꿀 수 없습니다.
+        {BRAND_NAME_KO}에서 어떻게 사용할지 선택해 주세요. 나중에 바꿀 수 없습니다.
       </p>
       <form onSubmit={handleSubmit} noValidate>
         {error && (

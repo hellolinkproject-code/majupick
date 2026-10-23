@@ -28,7 +28,7 @@ describe('routes', () => {
   it('renders the home page inside the layout', async () => {
     renderAt('/');
 
-    expect(screen.getByRole('heading', { level: 1, name: 'WorkBridge' })).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: '마주픽' })).toBeTruthy();
     expect(screen.getByText('개발 환경')).toBeTruthy();
     expect(await screen.findByText('정상 (ok)')).toBeTruthy();
   });

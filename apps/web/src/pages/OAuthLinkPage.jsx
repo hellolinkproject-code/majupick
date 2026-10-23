@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { FormField } from '../components/FormField.jsx';
 import { linkGoogleAccount, parseApiError } from '../lib/authApi.js';
 import { safeReturnTo } from '../lib/returnTo.js';
+import { BRAND_NAME_KO } from '../lib/brand.js';
 
 const MASKED_EMAIL = /^[^\s@*][*]{3}@[^\s@]+$/;
 
@@ -69,8 +70,8 @@ export function OAuthLinkPage() {
       <h1>계정 연결 확인</h1>
       <p className="profile__note">
         {maskedEmail
-          ? `${maskedEmail} 로 가입된 WorkBridge 계정이 있습니다.`
-          : '같은 이메일로 가입된 WorkBridge 계정이 있습니다.'}{' '}
+          ? `${maskedEmail} 로 가입된 ${BRAND_NAME_KO} 계정이 있습니다.`
+          : `같은 이메일로 가입된 ${BRAND_NAME_KO} 계정이 있습니다.`}{' '}
         본인 확인을 위해 기존 비밀번호를 입력하면 Google 계정을 연결합니다. 이메일 주소만으로 자동
         연결하지 않습니다.
       </p>
