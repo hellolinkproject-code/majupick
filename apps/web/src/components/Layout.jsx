@@ -5,6 +5,7 @@ import { logout, restoreSession } from '../lib/authApi.js';
 import { safeReturnTo } from '../lib/returnTo.js';
 import { useSessionStore } from '../stores/useSessionStore.js';
 import { NotificationBell } from './NotificationBell.jsx';
+import { BRAND_NAME_EN, BRAND_NAME_KO } from '../lib/brand.js';
 
 // 역할 선택 전에는 인증 화면만 열고, 그 외에는 역할 선택으로 보낸다.
 const ROLE_EXEMPT = new Set(['/select-role', '/oauth/complete', '/oauth/link']);
@@ -151,8 +152,8 @@ export function Layout() {
       </a>
       <header className="layout__header" onKeyDown={handleMenuKeyDown}>
         <div className="layout__bar">
-          <Link to="/" className="layout__logo">
-            WorkBridge
+          <Link to="/" className="layout__logo" aria-label={`${BRAND_NAME_KO} ${BRAND_NAME_EN}`}>
+            {BRAND_NAME_KO}
           </Link>
           {import.meta.env.MODE !== 'production' ? (
             <span className="layout__badge">개발 환경</span>
@@ -179,7 +180,9 @@ export function Layout() {
       <main id="main-content" className="layout__main" tabIndex={-1}>
         {needsRole ? <Navigate to={roleSelectionPath(location)} replace /> : <Outlet />}
       </main>
-      <footer className="layout__footer">© WorkBridge</footer>
+      <footer className="layout__footer">
+        © {BRAND_NAME_KO} ({BRAND_NAME_EN})
+      </footer>
     </div>
   );
 }

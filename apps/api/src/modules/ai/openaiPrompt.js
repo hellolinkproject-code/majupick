@@ -2,7 +2,7 @@
 
 export const ESTIMATE_DISCLAIMER = '참고용 예상 견적이며 실제 계약 금액과 다를 수 있습니다.';
 
-export const SYSTEM_PROMPT = `당신은 WorkBridge의 소프트웨어 개발 견적 보조 시스템입니다.
+export const SYSTEM_PROMPT = `당신은 마주픽(MAJUPICK)의 소프트웨어 개발 견적 보조 시스템입니다.
 프로젝트 요구사항을 단위 기능으로 분해하고, 기능별 예상 비용(원화 정수)과 산정 근거를 제시합니다.
 
 반드시 지킬 규칙:

@@ -1,6 +1,8 @@
-# WorkBridge
+# 마주픽 (MAJUPICK)
 
-의뢰인과 프리랜서를 연결하는 프로젝트 중개 플랫폼 (코드잇 풀스택 JavaScript 과제).
+서로에게 맞는 일과 사람을 찾다.
+
+의뢰인과 프리랜서를 연결하는 프로젝트 중개 플랫폼 (코드잇 풀스택 JavaScript 과제). 저장소·API·데이터베이스 안의 식별자는 이전 이름 WorkBridge로 남아 있다.
 
 > 현재 단계: **운영 배포 완료**. 웹·API·Neon PostgreSQL이 연결되어 있고, 운영 환경에서 종단간 Mock 거래 시나리오 검증을 마쳤다. Google 로그인, 토스 샌드박스 실호출, OpenAI 유료 호출은 켜 두지 않았다. 설계 기록은 [`docs/DEPLOYMENT_PLAN.md`](./docs/DEPLOYMENT_PLAN.md)·[`docs/DEPLOYMENT_CHECKLIST.md`](./docs/DEPLOYMENT_CHECKLIST.md).
 > 기획·설계 문서는 [`planning/`](./planning)에 있다. ERD 원본은 [`planning/ERD_v1.md`](./planning/ERD_v1.md), API 명세 원본은 [`planning/API_SPEC_v1.md`](./planning/API_SPEC_v1.md).
@@ -145,7 +147,7 @@ npm run dev
 
 ## 데이터베이스 (로컬 PostgreSQL)
 
-개발은 내 PC에 설치된 PostgreSQL 18을 쓴다. 운영 데이터는 Neon PostgreSQL에 있다. 아래 절차는 로컬 개발용이며, 운영 DB에는 실행하지 않는다. 용도별로 DB 3개를 나눠 쓰고, 모두 WorkBridge 전용 계정 `workbridge_app`이 소유한다. 이 계정에는 관리자 권한이 없다.
+개발은 내 PC에 설치된 PostgreSQL 18을 쓴다. 운영 데이터는 Neon PostgreSQL에 있다. 아래 절차는 로컬 개발용이며, 운영 DB에는 실행하지 않는다. 용도별로 DB 3개를 나눠 쓰고, 모두 전용 계정 `workbridge_app`이 소유한다. 이 계정에는 관리자 권한이 없다.
 
 | DB                  | 용도                                                | `.env` 변수           |
 | ------------------- | --------------------------------------------------- | --------------------- |

@@ -5,6 +5,7 @@ import { fetchHealth } from '../lib/apiClient.js';
 import { fetchMetaOptions } from '../lib/profileApi.js';
 import { SEARCH_LIMITS } from '../lib/projectSearch.js';
 import { useSessionStore } from '../stores/useSessionStore.js';
+import { BRAND_NAME_EN, BRAND_NAME_KO, BRAND_TAGLINE } from '../lib/brand.js';
 
 function ApiStatus() {
   const { data, isPending, isError } = useQuery({ queryKey: ['health'], queryFn: fetchHealth });
@@ -72,8 +73,12 @@ export function HomePage() {
 
   return (
     <section className="home">
-      <h1>WorkBridge</h1>
-      <p className="home__lead">의뢰인과 프리랜서를 연결하는 프로젝트 중개 플랫폼</p>
+      <h1>{BRAND_NAME_KO}</h1>
+      <p className="home__lead">
+        {BRAND_NAME_EN}
+        <br />
+        {BRAND_TAGLINE}
+      </p>
 
       <HomeSearch />
 

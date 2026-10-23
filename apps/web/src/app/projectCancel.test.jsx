@@ -139,7 +139,7 @@ describe('project cancel (client, STAT-02)', () => {
     expect(document.activeElement).toBe(back);
     fireEvent.keyDown(back, { key: 'Tab', shiftKey: true });
     expect(document.activeElement).toBe(confirm);
-    screen.getByRole('link', { name: 'WorkBridge' }).focus();
+    screen.getByRole('link', { name: '마주픽 MAJUPICK' }).focus();
     expect(document.activeElement).toBe(back);
 
     fireEvent.keyDown(dialog, { key: 'Escape' });
